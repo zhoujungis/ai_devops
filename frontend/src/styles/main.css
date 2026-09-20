@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Dark-first: the product is a developer tool. */
+:root {
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-[#0b0d10] text-slate-200 antialiased;
+}
+
+/* Every card shares this, so pages stay visually consistent. */
+.panel {
+  @apply rounded-lg border border-[#1f242b] bg-[#12151a] p-4;
+}
