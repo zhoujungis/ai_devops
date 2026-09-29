@@ -12,6 +12,11 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
+        # The `embedding` column below is `vector(1536)`, so the extension has to exist
+        # first. This edge is not derivable from the models, which is exactly why a
+        # pristine database needs it spelled out: without it the extension is created
+        # whenever the graph happens to reach its own leaf, which is *after* this table.
+        ('core', '0001_enable_pgvector'),
         ('accounts', '0002_alter_project_key_prefix'),
         ('codebase', '0004_commit_requirement'),
         ('requirements', '0001_initial'),

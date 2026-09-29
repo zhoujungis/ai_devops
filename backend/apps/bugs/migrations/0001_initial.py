@@ -12,6 +12,9 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
+        # See testing/0001_initial: `summary_embedding` is a `vector` column, so the
+        # pgvector extension must be installed before this migration runs.
+        ('core', '0001_enable_pgvector'),
         ('accounts', '0002_alter_project_key_prefix'),
         ('codebase', '0003_alter_commitfile_patch'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
