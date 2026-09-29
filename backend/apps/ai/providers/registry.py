@@ -79,14 +79,18 @@ def build_provider(
 
 
 def default_config(org: Any) -> AIProviderConfig | None:
-    """The organization's default provider, falling back to its only one."""
-    active = AIProviderConfig.objects.filter(org=org).exclude(status=ProviderStatus.DISABLED)
-    preferred = active.filter(is_default=True).first()
-    if preferred is not None:
-        return preferred
-    if active.count() == 1:
-        return active.first()
-    return None
+    """The organization's default provider, falling back to its only one.
+
+    Fetched once and decided in Python: the previous version ran three queries
+    (default, count, first) to answer a question one row read can settle.
+    """
+    active = list(
+        AIProviderConfig.objects.filter(org=org).exclude(status=ProviderStatus.DISABLED)
+    )
+    for config in active:
+        if config.is_default:
+            return config
+    return active[0] if len(active) == 1 else None
 
 
 @dataclass(frozen=True)

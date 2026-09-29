@@ -31,7 +31,13 @@ from apps.accounts.permissions import (
 from apps.accounts.roles import Role
 from apps.core.exceptions import ApplicationError
 from apps.integrations.git.factory import provider_for
-from apps.integrations.models import ConnectionStatus, GitConnection, Repository, WebhookEvent
+from apps.integrations.models import (
+    ConnectionStatus,
+    GitConnection,
+    Repository,
+    SyncStatus,
+    WebhookEvent,
+)
 from apps.integrations.serializers import (
     GitConnectionSerializer,
     RepositoryCreateSerializer,
@@ -69,6 +75,14 @@ class WebhookSignatureError(ApplicationError):
     status_code: int = status.HTTP_401_UNAUTHORIZED
     default_detail: str = "Invalid webhook signature."
     default_code: str = "invalid_signature"
+
+
+class SyncInProgressError(ApplicationError):
+    """A sync for this repository is already running."""
+
+    status_code: int = status.HTTP_409_CONFLICT
+    default_detail: str = "A sync is already running for this repository."
+    default_code: str = "sync_in_progress"
 
 
 class GitConnectionViewSet(ScopedRoleViewMixin, viewsets.ModelViewSet):
@@ -178,8 +192,17 @@ class RepositoryViewSet(ScopedRoleViewMixin, viewsets.ModelViewSet):
         )
 
     def sync(self, request: Request, **kwargs: Any) -> Response:
-        """Queue a synchronisation run and return immediately."""
+        """Queue a synchronisation run and return immediately.
+
+        Refuses while one is already running. Two concurrent runs write the same
+        cursor, status and ``last_synced_at``, and last-writer-wins silently loses
+        progress. This is a guard rather than a lock — the task itself is what marks the
+        repository RUNNING — so it closes the common cases (a double submit, an
+        impatient retry) without holding a lock across the sync's network calls.
+        """
         repository = self.get_object()
+        if repository.sync_status == SyncStatus.RUNNING:
+            raise SyncInProgressError()
         task = sync_repository_task.delay(str(repository.pk))
         return Response(
             {"status": "queued", "repository": str(repository.pk), "task_id": task.id},
@@ -196,6 +219,9 @@ class GitHubWebhookView(APIView):
 
     authentication_classes = ()
     permission_classes = (AllowAny,)
+    # Unauthenticated and writes a row plus queues work per call, so it is throttled
+    # even though the HMAC already proves the delivery came from the configured host.
+    throttle_scope = "webhook"
 
     @extend_schema(
         summary="Receive a GitHub delivery",

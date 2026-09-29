@@ -7,12 +7,13 @@ is useful and "the root cause is X" is a guess wearing a suit.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 from apps.ai.agents.analysis import AnalysisAgent
-from apps.ai.agents.base import register_agent
+from apps.ai.agents.base import matches_uuid, register_agent
 from apps.ai.models import AIAnalysisJob
 from apps.ai.schemas.bug_investigation import BugInvestigationOutput
+from apps.ai.schemas.common import AgentOutput
 from apps.ai.tools.base import ToolContext
 from apps.bugs.models import Bug
 from apps.codebase.models import Commit
@@ -25,7 +26,9 @@ class BugInvestigationAgent(AnalysisAgent):
     prompt_id = "bug_investigation"
     capability = "chat"
     description = "Builds an investigation chain for a defect and ranks candidate causes."
-    schema = BugInvestigationOutput
+    # Annotated as the base type so the RCA agent can override it with another schema;
+    # without this mypy narrows it to this exact class and rejects the subclass.
+    schema: ClassVar[type[AgentOutput]] = BugInvestigationOutput
     finding_category = "bug_investigation"
 
     def gather(self, job: AIAnalysisJob, context: ToolContext) -> tuple[dict[str, Any] | None, str]:
@@ -90,13 +93,12 @@ class BugInvestigationAgent(AnalysisAgent):
 
     @staticmethod
     def _bug(job: AIAnalysisJob, context: ToolContext) -> Bug | None:
+        """Resolve the target to a bug, by pk when it is one and by key otherwise."""
         queryset = Bug.objects.filter(project=context.project)
         if not job.target_id:
             return None
-        return (
-            queryset.filter(pk=job.target_id).first()
-            or queryset.filter(key__iexact=job.target_id).first()
-        )
+        by_pk = queryset.filter(pk=job.target_id).first() if matches_uuid(job.target_id) else None
+        return by_pk or queryset.filter(key__iexact=job.target_id).first()
 
     @staticmethod
     def _commits_around(module_ids: list[Any], bug: Bug) -> list[Commit]:

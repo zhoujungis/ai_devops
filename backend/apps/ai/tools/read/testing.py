@@ -5,7 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from apps.ai.tools.base import Citation, Tool, ToolContext, ToolResult
-from apps.testing.models import TestCase, TestRun, TestRunStatus
+from apps.testing.models import TestCase, TestResultStatus, TestRun, TestRunStatus
 
 DEFAULT_LIMIT = 25
 
@@ -110,7 +110,11 @@ class ListFailingTestsTool(Tool[ListFailingTestsArgs]):
         if run is None:
             return ToolResult(data={"run_id": None, "failures": []})
 
-        failures = run.results.exclude(status="passed")[: args.limit]
+        # Only real failures: a skipped test is not evidence of a problem, and reporting
+        # it as one would send the model chasing something that never ran.
+        failures = run.results.filter(
+            status__in=[TestResultStatus.FAILED, TestResultStatus.ERROR]
+        )[: args.limit]
         return ToolResult(
             data={
                 "run_id": str(run.pk),

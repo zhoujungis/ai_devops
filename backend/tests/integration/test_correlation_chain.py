@@ -34,7 +34,7 @@ from services.correlation import (
     VERIFIED_NEIGHBOUR_WEIGHT,
     CorrelationService,
 )
-from services.linking import find_requirement_key, link_commit_to_requirement
+from services.linking import find_key, link_commit_to_requirement
 
 pytestmark = pytest.mark.django_db
 
@@ -314,4 +314,4 @@ def test_the_linker_ignores_unknown_keys(project: Project) -> None:
 def test_the_key_matcher_is_case_insensitive(project: Project) -> None:
     requirement = Requirement.objects.create(project=project, external_key="PAY-18", title="Retry")
 
-    assert find_requirement_key("fix pay-18 now", {"PAY-18": requirement}) == requirement
+    assert find_key("fix pay-18 now", {"PAY-18": requirement}) == requirement

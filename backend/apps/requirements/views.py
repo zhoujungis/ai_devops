@@ -29,6 +29,19 @@ class RequirementViewSet(ScopedRoleViewMixin, viewsets.ModelViewSet):
     search_fields = ["external_key", "title", "description"]
     ordering_fields = ["external_key", "priority", "created_at", "status"]
     ordering = ["external_key"]
+    #: The lifecycle is not alphabetical: draft < approved < in progress < implemented
+    #: < verified < released, with cancelled as the terminal state.
+    ranked_ordering: ClassVar[dict[str, dict[str, int]]] = {
+        "status": {
+            "draft": 0,
+            "approved": 1,
+            "in_progress": 2,
+            "implemented": 3,
+            "verified": 4,
+            "released": 5,
+            "cancelled": 6,
+        },
+    }
 
     required_roles: ClassVar[dict[str, RoleRequirement]] = {
         "list": Role.VIEWER,

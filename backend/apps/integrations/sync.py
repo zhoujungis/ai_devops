@@ -30,11 +30,12 @@ from typing import Any
 from django.conf import settings
 from django.utils import timezone
 
+from apps.codebase.centrality import recompute_centrality
 from apps.codebase.ingest import ingest_branch, ingest_commit
 from apps.codebase.models import Commit
 from apps.integrations.git.base import GitProvider, RemoteCommitRef
 from apps.integrations.models import Repository, SyncStatus
-from services.linking import link_unlinked_commits
+from services.linking import link_bugs_in_commits, link_unlinked_commits
 
 PAGE_SIZE = 100
 #: Re-read a little either side of a cursor so a commit sharing a timestamp with
@@ -124,6 +125,9 @@ def sync_repository(
         # Infer requirement links for whatever gained a commit this run. Batched,
         # so the project's requirement keys are resolved once rather than per commit.
         result.requirement_links = link_unlinked_commits(repository)
+        # A commit whose message names a defect is evidence that the defect lives in the
+        # modules it touched — the edge the bug-density and open-severity signals read.
+        link_bugs_in_commits(repository)
 
         repository.sync_cursor = _dump_cursor(cursor)
         repository.sync_status = SyncStatus.SUCCEEDED
@@ -138,6 +142,9 @@ def sync_repository(
                 "updated_at",
             ]
         )
+        # Centrality is a property of the whole project, and it just changed: the
+        # commits this run ingested shift how much of the codebase each module carries.
+        recompute_centrality(repository.project)
         result.backfill_before = (
             cursor.backfill_before.isoformat() if cursor.backfill_before else None
         )

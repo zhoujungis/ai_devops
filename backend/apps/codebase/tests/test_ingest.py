@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, cast
 
 import pytest
+from django.test import override_settings
 
 from apps.accounts.models import Project
 from apps.accounts.tests.factories import OrganizationFactory, ProjectFactory
@@ -163,3 +164,42 @@ def test_renames_with_no_churn_still_produce_weights(repository: Repository) -> 
     impacts = list(CommitModuleImpact.objects.filter(commit=commit))
     assert len(impacts) == 2
     assert sum(impact.weight for impact in impacts) == pytest.approx(1.0)
+
+
+def test_a_patch_is_bounded_in_bytes_not_characters(repository: Repository) -> None:
+    """`GIT_PATCH_MAX_BYTES` is a byte budget.
+
+    Slicing by character would let a CJK diff store roughly three times the intended
+    size, and `truncated` would be decided on the wrong measure.
+    """
+    patch = "修" * 10  # 10 characters, 30 bytes
+
+    with override_settings(GIT_PATCH_MAX_BYTES=8):
+        commit = ingest_commit(
+            repository,
+            make_remote_commit(
+                "cjk", minutes_ago=5, files=[make_remote_file("src/a.py", patch=patch)]
+            ),
+        )
+
+    changed = CommitFile.objects.get(commit=commit)
+    assert changed.truncated is True
+    assert len(changed.patch.encode("utf-8")) <= 8
+    # The half-character at the cut is dropped rather than left as invalid text.
+    assert changed.patch == "修修"
+
+
+def test_a_patch_within_the_budget_is_kept_verbatim(repository: Repository) -> None:
+    patch = "@@ -1 +1 @@\n-a\n+b"
+
+    with override_settings(GIT_PATCH_MAX_BYTES=len(patch.encode("utf-8"))):
+        commit = ingest_commit(
+            repository,
+            make_remote_commit(
+                "small", minutes_ago=5, files=[make_remote_file("src/b.py", patch=patch)]
+            ),
+        )
+
+    changed = CommitFile.objects.get(commit=commit)
+    assert changed.truncated is False
+    assert changed.patch == patch

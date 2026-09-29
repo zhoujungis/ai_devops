@@ -18,6 +18,8 @@ test_run_list = views.TestRunViewSet.as_view({"get": "list", "post": "create"})
 test_run_detail = views.TestRunViewSet.as_view(
     {"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}
 )
+coverage_list = views.CoverageSnapshotViewSet.as_view({"get": "list", "post": "create"})
+coverage_detail = views.CoverageSnapshotViewSet.as_view({"get": "retrieve"})
 
 _BASE = "orgs/<uuid:org_pk>/projects/<uuid:project_pk>"
 
@@ -36,4 +38,10 @@ urlpatterns: list[URLPattern] = [
     ),
     path(f"{_BASE}/test-runs", test_run_list, name="test-run-list"),
     path(f"{_BASE}/test-runs/<uuid:test_run_pk>", test_run_detail, name="test-run-detail"),
+    path(f"{_BASE}/coverage-snapshots", coverage_list, name="coverage-snapshot-list"),
+    path(
+        f"{_BASE}/coverage-snapshots/<uuid:snapshot_pk>",
+        coverage_detail,
+        name="coverage-snapshot-detail",
+    ),
 ]

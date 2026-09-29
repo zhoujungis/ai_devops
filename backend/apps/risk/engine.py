@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
-from django.db.models import Avg, Count, Max, Min
+from django.db.models import Avg, Count, Max, Min, Q
 from django.utils import timezone
 
 from apps.bugs.models import BugModuleLink, BugStatus, Severity
@@ -152,6 +152,12 @@ class RiskEngine:
 
     def __init__(self, *, now: datetime | None = None) -> None:
         self._now = now or timezone.now()
+        # One assessment reads the same release schedule and sync staleness three
+        # times over (raw value, normalised value, and detail text). Memoising per
+        # instance turns those into one query each; an instance is per-request, so
+        # there is no staleness concern.
+        self._release_cache: dict[Any, int | None] = {}
+        self._staleness_cache: dict[Any, float] = {}
 
     # ------------------------------------------------------------------
     def assess_commit(self, commit: Commit) -> RiskAssessment:
@@ -366,14 +372,18 @@ class RiskEngine:
         """Failure rate of recent results for cases linked to these modules."""
         from apps.testing.models import TestResult
 
-        results = TestResult.objects.filter(
-            test_case__module_links__module_id__in=module_ids
-        ).exclude(status="skipped")
-        total = results.count()
+        totals = (
+            TestResult.objects.filter(test_case__module_links__module_id__in=module_ids)
+            .exclude(status="skipped")
+            .aggregate(
+                total=Count("id"),
+                failed=Count("id", filter=Q(status__in=["failed", "error"])),
+            )
+        )
+        total = totals["total"] or 0
         if total == 0:
             return 0.0
-        failed = results.filter(status__in=["failed", "error"]).count()
-        return failed / total
+        return (totals["failed"] or 0) / total
 
     def _coverage_gap(self, module_ids: Sequence[Any], commit: Commit | None) -> dict[str, Any]:
         from apps.testing.models import CoverageSnapshot
@@ -422,12 +432,17 @@ class RiskEngine:
     def _days_to_release(self, project: Any) -> int | None:
         from apps.releases.models import Release, ReleaseStatus
 
+        if project is None:
+            return None
+        key = project.pk
+        if key in self._release_cache:
+            return self._release_cache[key]
         upcoming = Release.objects.filter(
             project=project, status=ReleaseStatus.PLANNED, planned_at__gte=self._now
         ).aggregate(soonest=Min("planned_at"))["soonest"]
-        if upcoming is None:
-            return None
-        return max(0, (upcoming - self._now).days)
+        days = None if upcoming is None else max(0, (upcoming - self._now).days)
+        self._release_cache[key] = days
+        return days
 
     def _release_proximity(self, project: Any | None = None) -> float:
         days = self._days_to_release(project)
@@ -456,12 +471,19 @@ class RiskEngine:
         target = project if project is not None else (commit.repository.project if commit else None)
         if target is None:
             return float(FRESHNESS_WINDOW_HOURS)
+        key = target.pk
+        if key in self._staleness_cache:
+            return self._staleness_cache[key]
         newest = Repository.objects.filter(project=target).aggregate(latest=Max("last_synced_at"))[
             "latest"
         ]
-        if newest is None:
-            return float(FRESHNESS_WINDOW_HOURS)
-        return max(0.0, (self._now - newest).total_seconds() / 3600.0)
+        hours = (
+            float(FRESHNESS_WINDOW_HOURS)
+            if newest is None
+            else max(0.0, (self._now - newest).total_seconds() / 3600.0)
+        )
+        self._staleness_cache[key] = hours
+        return hours
 
     def _freshness_penalty(self, commit: Commit | None, project: Any | None = None) -> float:
         return saturate(self._staleness_hours(commit, project), at=float(FRESHNESS_WINDOW_HOURS))

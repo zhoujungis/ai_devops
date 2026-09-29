@@ -23,15 +23,20 @@ def resolver_for(repository: Repository) -> ModuleResolver:
 def _prepare_patch(patch: str | None) -> tuple[str, bool]:
     """Bound the stored diff size. Returns ``(patch, truncated)``.
 
+    Bound in *bytes*, not characters: the setting is a byte cap, and a CJK diff
+    sliced by character can store three times the intended size. The slice is done
+    on the encoded bytes and decoded back ignoring the split character at the cut.
+
     An absent diff is stored as an empty string; ``has_patch`` on the row is what
     distinguishes "the provider gave us nothing" from "the diff was empty".
     """
     if not patch:
         return "", False
     limit: int = settings.GIT_PATCH_MAX_BYTES
-    if len(patch) > limit:
-        return patch[:limit], True
-    return patch, False
+    encoded = patch.encode("utf-8")
+    if len(encoded) <= limit:
+        return patch, False
+    return encoded[:limit].decode("utf-8", errors="ignore"), True
 
 
 @transaction.atomic

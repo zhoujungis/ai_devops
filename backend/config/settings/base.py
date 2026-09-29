@@ -187,7 +187,20 @@ CELERY_TASK_ROUTES = {
     "apps.ai.tasks.*": {"queue": "ai"},
     "apps.integrations.tasks.*": {"queue": "sync"},
 }
-CELERY_BEAT_SCHEDULE: dict[str, dict[str, object]] = {}
+CELERY_BEAT_SCHEDULE: dict[str, dict[str, object]] = {
+    # Reconciles jobs whose enqueue never reached a worker, or that outlived the task
+    # time limit; without it a client would poll them forever.
+    "fail-stale-ai-jobs": {
+        "task": "apps.ai.tasks.fail_stale_jobs",
+        "schedule": 600.0,
+    },
+    # Webhooks are the primary sync trigger; this catches whatever they missed, running
+    # on the same interval that defines "stale" so the two cannot drift apart.
+    "sync-stale-repositories": {
+        "task": "apps.integrations.tasks.sync_stale_repositories",
+        "schedule": float(env_int("GIT_SYNC_INTERVAL_MINUTES", 60)) * 60.0,
+    },
+}
 
 # ---------------------------------------------------------------------------
 # REST framework
@@ -197,12 +210,25 @@ REST_FRAMEWORK = {
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
+    # ScopedRateThrottle only throttles views that declare a `throttle_scope`, so the
+    # unauthenticated entry points (login/register/refresh and the webhook) opt in
+    # without rate-limiting ordinary authenticated reads. Without this, login is an
+    # unthrottled password oracle and the webhook an unauthenticated write path.
+    "DEFAULT_THROTTLE_CLASSES": ("rest_framework.throttling.ScopedRateThrottle",),
+    "DEFAULT_THROTTLE_RATES": {
+        "login": env("THROTTLE_LOGIN", "10/min"),
+        "register": env("THROTTLE_REGISTER", "5/hour"),
+        "refresh": env("THROTTLE_REFRESH", "30/min"),
+        "webhook": env("THROTTLE_WEBHOOK", "120/min"),
+    },
     "DEFAULT_PAGINATION_CLASS": "apps.core.pagination.DefaultPagination",
     "PAGE_SIZE": 20,
     "DEFAULT_FILTER_BACKENDS": (
         "django_filters.rest_framework.DjangoFilterBackend",
         "rest_framework.filters.SearchFilter",
-        "rest_framework.filters.OrderingFilter",
+        # Not DRF's OrderingFilter: this one honours a view's `ranked_ordering` so an
+        # enum column sorts by meaning instead of alphabetically.
+        "apps.core.filters.RankedOrderingFilter",
     ),
     "EXCEPTION_HANDLER": "apps.core.exceptions.api_exception_handler",
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",

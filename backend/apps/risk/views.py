@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from drf_spectacular.utils import extend_schema
+from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -42,16 +43,9 @@ class CommitRiskView(_RiskView):
             .first()
         )
         if commit is None:
-            return Response(
-                {
-                    "error": {
-                        "code": "not_found",
-                        "message": "No such commit in this project.",
-                        "details": {},
-                    }
-                },
-                status=404,
-            )
+            # Raised, not returned: the global handler is what attaches the request id
+            # and the stable code, and a hand-built body would silently skip both.
+            raise NotFound("No such commit in this project.")
 
         assessment = RiskEngine().assess_commit(commit)
         return Response(RiskAssessmentSerializer(assessment).data)
@@ -64,16 +58,7 @@ class ModuleRiskView(_RiskView):
             project=self.get_scope_project(), pk=self.kwargs["module_pk"]
         ).first()
         if module is None:
-            return Response(
-                {
-                    "error": {
-                        "code": "not_found",
-                        "message": "No such module in this project.",
-                        "details": {},
-                    }
-                },
-                status=404,
-            )
+            raise NotFound("No such module in this project.")
 
         assessment = RiskEngine().assess_module(module)
         return Response(RiskAssessmentSerializer(assessment).data)

@@ -16,7 +16,7 @@ from apps.accounts.tests.factories import (
     UserFactory,
 )
 from apps.codebase.ingest import ingest_commit
-from apps.integrations.models import Repository
+from apps.integrations.models import Repository, SyncStatus
 from apps.integrations.tests.factories import build_connection, build_repository
 from apps.integrations.tests.fakes import FakeGitProvider, make_remote_commit, make_remote_file
 
@@ -77,6 +77,23 @@ def test_syncing_requires_the_developer_role(role: Role, monkeypatch: Any) -> No
     )
 
     assert response.status_code == (202 if role.at_least(Role.DEVELOPER) else 403)
+
+
+def test_a_sync_is_refused_while_one_is_already_running(monkeypatch: Any) -> None:
+    """Two runs write the same cursor, and last-writer-wins loses progress."""
+    org, project, actor = _scene(Role.DEVELOPER)
+    repository = build_repository(project)
+    monkeypatch.setattr("apps.integrations.views.sync_repository_task", _QueuedTask())
+    Repository.objects.filter(pk=repository.pk).update(sync_status=SyncStatus.RUNNING)
+
+    response = _client(actor).post(
+        f"/api/v1/orgs/{org.pk}/projects/{project.pk}/repositories/{repository.pk}/sync"
+    )
+
+    assert response.status_code == 409
+    error = response.json()["error"]
+    assert error["code"] == "sync_in_progress"
+    assert error["request_id"], "a 409 must carry the request id like every other error"
 
 
 def test_a_foreign_organization_is_a_404_not_a_403() -> None:

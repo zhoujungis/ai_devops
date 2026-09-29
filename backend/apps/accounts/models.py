@@ -96,6 +96,13 @@ class Organization(BaseModel, ScopedModel):
         """The user's role in this organization, or ``None`` if not a member."""
         if not getattr(user, "is_authenticated", False):
             return None
+        # List endpoints prefetch the caller's membership onto ``viewer_memberships``
+        # so role resolution is one query per page rather than one per row. The
+        # attribute is only ever set for the requesting user, and the serializers
+        # only ever ask about that same user.
+        prefetched = getattr(self, "viewer_memberships", None)
+        if prefetched is not None:
+            return coerce(prefetched[0].role) if prefetched else None
         membership = self.memberships.filter(user=user).only("role").first()
         return coerce(membership.role) if membership is not None else None
 
@@ -197,11 +204,15 @@ class Project(BaseModel, ScopedModel):
         """
         if not getattr(user, "is_authenticated", False):
             return None
-        project_membership = self.memberships.filter(user=user).only("role").first()
-        return highest(
-            self.org.role_for(user),
-            project_membership.role if project_membership is not None else None,
-        )
+        # See Organization.role_for: the prefetched attribute avoids a query per
+        # project, and the organization's baseline role is prefetched alongside it.
+        prefetched = getattr(self, "viewer_project_memberships", None)
+        if prefetched is not None:
+            project_role = prefetched[0].role if prefetched else None
+        else:
+            project_membership = self.memberships.filter(user=user).only("role").first()
+            project_role = project_membership.role if project_membership is not None else None
+        return highest(self.org.role_for(user), project_role)
 
     @classmethod
     def scoped_for(cls, user: Any) -> QuerySet[Project]:

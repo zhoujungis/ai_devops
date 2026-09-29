@@ -63,6 +63,10 @@ class Requirement(BaseModel, ScopedModel):
                 fields=["project", "external_key"], name="uniq_requirement_project_key"
             ),
         ]
+        # The requirement list filters on status and priority within a project.
+        indexes = [
+            models.Index(fields=["project", "status"], name="idx_requirement_project_status"),
+        ]
 
     def __str__(self) -> str:
         return f"{self.external_key} {self.title}"

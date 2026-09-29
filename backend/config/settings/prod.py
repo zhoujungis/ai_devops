@@ -34,3 +34,12 @@ SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SECURE_HSTS_PRELOAD = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+# The schema and the Swagger UI describe every endpoint, parameter and enum, and they
+# are anonymous by default. Development keeps them open — `docs/local-setup-windows.md`
+# points at /api/docs/ — but a production instance does not hand its whole API surface
+# to anyone who guesses the path.
+SPECTACULAR_SETTINGS = {
+    **SPECTACULAR_SETTINGS,
+    "SERVE_PERMISSIONS": ["rest_framework.permissions.IsAdminUser"],
+}

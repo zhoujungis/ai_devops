@@ -81,6 +81,13 @@ class Bug(BaseModel, ScopedModel):
         constraints = [
             models.UniqueConstraint(fields=["project", "key"], name="uniq_bug_project_key"),
         ]
+        # The bug list filters on these and orders by recency; a project-scoped
+        # composite keeps each of those a single index scan.
+        indexes = [
+            models.Index(fields=["project", "status"], name="idx_bug_project_status"),
+            models.Index(fields=["project", "severity"], name="idx_bug_project_severity"),
+            models.Index(fields=["project", "-last_seen_at"], name="idx_bug_project_lastseen"),
+        ]
 
     def __str__(self) -> str:
         return f"{self.key} {self.title}"

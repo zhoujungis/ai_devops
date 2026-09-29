@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from django.urls import URLPattern, path
-from rest_framework_simplejwt.views import TokenRefreshView
 
 from apps.accounts import views
 
@@ -34,7 +33,7 @@ project_member_detail = views.ProjectMemberViewSet.as_view(
 urlpatterns: list[URLPattern] = [
     path("auth/register", views.RegisterView.as_view(), name="auth-register"),
     path("auth/login", views.LoginView.as_view(), name="auth-login"),
-    path("auth/refresh", TokenRefreshView.as_view(), name="auth-refresh"),
+    path("auth/refresh", views.RefreshView.as_view(), name="auth-refresh"),
     path("auth/logout", views.LogoutView.as_view(), name="auth-logout"),
     path("me", views.MeView.as_view(), name="me"),
     path("orgs", organization_list, name="organization-list"),

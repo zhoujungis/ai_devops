@@ -62,11 +62,19 @@ class CommitViewSet(ScopedRoleViewMixin, viewsets.ReadOnlyModelViewSet):
         project = self.get_scope_project()
         if project is None:
             return Commit.objects.none()
-        return (
+        queryset = (
             Commit.objects.filter(repository__project=project)
-            .select_related("repository")
-            .prefetch_related("module_impacts__module", "files")
+            # `requirement` is read by the explain chain; `repository` by the
+            # serializer. Both are cheap to join.
+            .select_related("repository", "requirement")
+            .prefetch_related("module_impacts__module")
         )
+        # Diffs are only rendered by the detail and explain views, and each file row
+        # can carry up to GIT_PATCH_MAX_BYTES of patch text. The list serializer never
+        # reads them, so prefetching here would ship megabytes the page discards.
+        if self.action in {"retrieve", "explain"}:
+            queryset = queryset.prefetch_related("files")
+        return queryset
 
 
 class ModuleViewSet(ScopedRoleViewMixin, viewsets.ReadOnlyModelViewSet):

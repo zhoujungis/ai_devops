@@ -7,9 +7,12 @@ the queue routing in settings matches on module path and never drifts.
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 from typing import Any
 
 from celery import shared_task
+from django.conf import settings
+from django.db import models
 from django.utils import timezone
 
 from apps.integrations.git.base import (
@@ -19,7 +22,7 @@ from apps.integrations.git.base import (
     GitRateLimitError,
 )
 from apps.integrations.git.factory import provider_for
-from apps.integrations.models import Repository, WebhookEvent
+from apps.integrations.models import Repository, SyncStatus, WebhookEvent
 from apps.integrations.sync import sync_repository
 from apps.integrations.webhooks import process_event
 
@@ -60,6 +63,33 @@ def sync_repository_task(self: Any, repository_id: str, limit: int | None = None
         result.pages_fetched,
     )
     return {"status": "succeeded", **result.as_dict()}
+
+
+@shared_task
+def sync_stale_repositories() -> dict[str, int]:
+    """Queue a sync for every repository whose data has gone stale.
+
+    Webhooks are the primary trigger; this is the reconciliation that catches what they
+    missed (a delivery dropped, a hook never configured, a worker restart). The window
+    is ``GIT_SYNC_INTERVAL_MINUTES``, which is also how often beat runs this, so a
+    repository a webhook already refreshed is left alone — and one already syncing is
+    skipped rather than queued twice.
+    """
+    cutoff = timezone.now() - timedelta(minutes=settings.GIT_SYNC_INTERVAL_MINUTES)
+    stale = list(
+        Repository.objects.filter(
+            models.Q(last_synced_at__lt=cutoff) | models.Q(last_synced_at__isnull=True)
+        )
+        .exclude(sync_status=SyncStatus.RUNNING)
+        .values_list("pk", flat=True)
+    )
+
+    for repository_id in stale:
+        sync_repository_task.delay(str(repository_id))
+
+    if stale:
+        logger.info("Queued %s stale repositories for sync", len(stale))
+    return {"queued": len(stale)}
 
 
 @shared_task

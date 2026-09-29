@@ -23,6 +23,15 @@ def test_readyz_reports_database_and_cache() -> None:
     assert body["checks"]["cache"]["ok"] is True
 
 
+@pytest.mark.django_db
+def test_readyz_stays_ok_on_repeated_probes() -> None:
+    """The probe renews its sentinel rather than recreating it; both paths report ok."""
+    client = Client()
+
+    assert client.get("/readyz").status_code == 200
+    assert client.get("/readyz").json()["checks"]["cache"]["ok"] is True
+
+
 def test_every_response_carries_a_request_id() -> None:
     response = Client().get("/healthz")
 

@@ -9,9 +9,8 @@ citation: it looks like proof while being uncheckable.
 from __future__ import annotations
 
 import hashlib
+import uuid
 from typing import Any
-
-from django.core.exceptions import ValidationError
 
 from apps.ai.models import AIAnalysisJob, AIFinding, FindingSeverity
 from apps.ai.schemas.common import EvidenceKind, EvidenceRef
@@ -42,6 +41,13 @@ UNRESOLVABLE_KINDS: dict[str, str] = {
 }
 
 
+def _as_uuid(value: Any) -> uuid.UUID | None:
+    try:
+        return uuid.UUID(str(value))
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
 def resolve_evidence(
     project: Any, refs: list[EvidenceRef]
 ) -> tuple[list[dict[str, Any]], list[str]]:
@@ -49,31 +55,41 @@ def resolve_evidence(
 
     ``dropped_reasons`` is returned rather than logged so a caller can surface it —
     a model citing things that do not exist is worth knowing about.
+
+    Resolution is batched one query per evidence kind rather than one per reference:
+    an agent that cites twenty modules should cost one query, not twenty. Ids are
+    parsed up front so a single malformed value cannot fail a whole batch.
     """
-    kept: list[dict[str, Any]] = []
+    parsed = [_as_uuid(ref.ref_id) for ref in refs]
     dropped: list[str] = []
 
-    for ref in refs:
+    for ref, value in zip(refs, parsed, strict=True):
         if ref.kind in UNRESOLVABLE_KINDS:
             dropped.append(f"{ref.kind}:{ref.ref_id} — {UNRESOLVABLE_KINDS[ref.kind]}")
-            continue
-
-        source = _EVIDENCE_SOURCES.get(ref.kind)
-        if source is None:
+        elif ref.kind not in _EVIDENCE_SOURCES:
             dropped.append(f"{ref.kind}:{ref.ref_id} — unknown evidence kind")
+        elif value is None:
+            dropped.append(f"{ref.kind}:{ref.ref_id} — not a valid id")
+
+    found: dict[str, set[uuid.UUID]] = {}
+    for kind in {ref.kind for ref in refs} & set(_EVIDENCE_SOURCES):
+        ids = [value for ref, value in zip(refs, parsed, strict=True) if ref.kind == kind and value is not None]
+        if not ids:
+            found[kind] = set()
             continue
+        model, scope_path = _EVIDENCE_SOURCES[kind]
+        found[kind] = set(
+            model.objects.filter(pk__in=ids, **{scope_path: project}).values_list("pk", flat=True)
+        )
 
-        model, scope_path = source
-        try:
-            exists = model.objects.filter(pk=ref.ref_id, **{scope_path: project}).exists()
-        except (ValidationError, ValueError):
-            exists = False
-
-        if not exists:
+    kept: list[dict[str, Any]] = []
+    for ref, value in zip(refs, parsed, strict=True):
+        if value is None or ref.kind not in _EVIDENCE_SOURCES:
+            continue  # already reported above
+        if value in found[ref.kind]:
+            kept.append({"kind": ref.kind, "ref_id": ref.ref_id, "note": ref.note})
+        else:
             dropped.append(f"{ref.kind}:{ref.ref_id} — not found in this project")
-            continue
-
-        kept.append({"kind": ref.kind, "ref_id": ref.ref_id, "note": ref.note})
 
     return kept, dropped
 

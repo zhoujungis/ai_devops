@@ -15,6 +15,7 @@ from apps.ai.models import (
     AIRecommendation,
     AIToolCall,
     AuditLog,
+    FindingStatus,
 )
 
 
@@ -46,7 +47,9 @@ class AnalysisRunSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = AIAnalysisRun
-        fields = (
+        # Annotated so the trace serializer can extend the tuple without mypy inferring
+        # a fixed-length type from this one and then rejecting the longer override.
+        fields: tuple[str, ...] = (
             "id",
             "sequence",
             "provider_type",
@@ -127,6 +130,20 @@ class ToolCallSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class AnalysisRunTraceSerializer(AnalysisRunSerializer):
+    """A run plus the tools it called.
+
+    This is the row that makes an answer checkable: which prompt version, which model,
+    which rows it read, and what it cost. Defined on top of the run serializer so the
+    job trace and the run audit can never disagree about a run's fields.
+    """
+
+    tool_calls = ToolCallSerializer(many=True, read_only=True)
+
+    class Meta(AnalysisRunSerializer.Meta):
+        fields = (*AnalysisRunSerializer.Meta.fields, "tool_calls")
+
+
 class AIFindingSerializer(serializers.ModelSerializer):
     class Meta:
         model = AIFinding
@@ -189,6 +206,16 @@ class RecommendationDecisionSerializer(serializers.Serializer):
 
     edited_payload = serializers.JSONField(required=False)
     reason = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class FindingStatusSerializer(serializers.Serializer):
+    """The body of a triage call.
+
+    A finding's *content* is the model's and is never edited; its status is a human
+    judgement about what to do with it, which is why this is the one writable field.
+    """
+
+    status = serializers.ChoiceField(choices=FindingStatus.choices)
 
 
 class AIProviderConfigSerializer(serializers.ModelSerializer):

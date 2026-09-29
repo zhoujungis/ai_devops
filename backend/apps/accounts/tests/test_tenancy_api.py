@@ -75,6 +75,24 @@ def test_project_creation_ignores_an_org_supplied_in_the_body(
     assert project.org_id != someone_else.pk
 
 
+def test_project_payload_carries_the_org_id_not_its_name(
+    owner_client: APIClient, owner: User
+) -> None:
+    """The client builds project-scoped URLs from ``org`` + ``id``.
+
+    A ``UUIDField`` declared over the relation serialises the Organization through
+    ``str()`` and hands back its display name, so every such URL would 404.
+    """
+    org = scoped_queryset(Organization, owner).get()
+    project = cast(Project, ProjectFactory(org=org, name="Checkout"))
+
+    response = owner_client.get(f"/api/v1/orgs/{org.pk}/projects")
+
+    assert response.status_code == 200
+    row = next(item for item in response.json()["results"] if item["id"] == str(project.pk))
+    assert row["org"] == str(org.pk)
+
+
 def test_adding_a_member_by_email(owner_client: APIClient, owner: User) -> None:
     org = scoped_queryset(Organization, owner).get()
     newcomer = cast(User, UserFactory(email="newcomer@example.com"))
@@ -133,6 +151,18 @@ def test_the_last_admin_cannot_be_demoted(owner_client: APIClient, owner: User) 
 
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "last_admin"
+    assert Membership.objects.get(org=org, user=owner).role == Role.ADMIN
+
+
+def test_an_unrelated_patch_does_not_trip_the_last_admin_guard(
+    owner_client: APIClient, owner: User
+) -> None:
+    """The guard now runs in the write path, so it must only fire on a real demotion."""
+    org = scoped_queryset(Organization, owner).get()
+
+    response = owner_client.patch(f"/api/v1/orgs/{org.pk}/members/{owner.pk}", {}, format="json")
+
+    assert response.status_code == 200
     assert Membership.objects.get(org=org, user=owner).role == Role.ADMIN
 
 

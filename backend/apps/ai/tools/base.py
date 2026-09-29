@@ -5,8 +5,10 @@ Every tool receives a :class:`ToolContext` and is required to filter by
 tenant's data" a property of the code rather than a promise in a prompt: the model
 never gets a queryset, only the rows a tool decides to hand back.
 
-Tools are also the only place an agent touches data at all. The agent layer is
-checked (by test) never to import models.
+Tools are the only place *the model* touches data at all: the model never gets a
+queryset, only what a tool hands back. (An agent may query the database directly for the
+facts it puts in the prompt — that is bounded by the prompt's construction, not by this
+class.)
 
 ``Tool`` is generic over its argument model so ``run`` receives a validated, fully
 typed object: one place validates, and no implementation unpacks ``**kwargs``.

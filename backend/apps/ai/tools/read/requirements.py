@@ -33,11 +33,11 @@ class SearchRequirementTool(Tool[SearchRequirementArgs]):
                 external_key__icontains=args.query
             )
         if args.module_path_prefix:
-            queryset = queryset.filter(
-                module_links__module__path_prefix=args.module_path_prefix
-            ).distinct()
+            queryset = queryset.filter(module_links__module__path_prefix=args.module_path_prefix)
 
-        requirements = list(queryset.order_by("external_key")[: args.limit])
+        # `distinct` covers both filters: the OR on title/key can match a row twice, and
+        # the module join can too. Without it the same requirement is cited twice.
+        requirements = list(queryset.distinct().order_by("external_key")[: args.limit])
         return ToolResult(
             data=[
                 {

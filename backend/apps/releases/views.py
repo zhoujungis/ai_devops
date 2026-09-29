@@ -43,9 +43,7 @@ class ReleaseViewSet(ScopedRoleViewMixin, viewsets.ModelViewSet):
         project = self.get_scope_project()
         if project is None:
             return Release.objects.none()
-        return Release.objects.filter(project=project).prefetch_related(
-            "commit_links__commit", "risk_snapshots"
-        )
+        return Release.objects.filter(project=project).prefetch_related("commit_links__commit")
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = dict(super().get_serializer_context())

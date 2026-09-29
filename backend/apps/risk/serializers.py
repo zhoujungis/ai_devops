@@ -12,7 +12,6 @@ from typing import Any
 from rest_framework import serializers
 
 from apps.risk.engine import RiskAssessment
-from apps.risk.models import RiskRule
 
 
 class RiskAssessmentSerializer(serializers.Serializer):
@@ -29,20 +28,3 @@ class RiskAssessmentSerializer(serializers.Serializer):
 
     def get_breakdown(self, obj: RiskAssessment) -> list[dict[str, Any]]:
         return obj.as_breakdown()
-
-
-class RiskRuleSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = RiskRule
-        fields = (
-            "id",
-            "org",
-            "project",
-            "code",
-            "weight",
-            "enabled",
-            "params",
-            "updated_by",
-            "created_at",
-        )
-        read_only_fields = ("id", "org", "project", "updated_by", "created_at")

@@ -44,6 +44,7 @@ from apps.ai.tasks import create_job, run_analysis_job
 from apps.ai.tests.fakes import FakeAIProvider
 from apps.ai.tools.base import ToolContext, ToolScopeError
 from apps.ai.tools.registry import load_default_tools
+from apps.bugs.models import Bug
 from apps.codebase.ingest import ingest_commit
 from apps.codebase.models import Module
 from apps.integrations.tests.factories import build_repository
@@ -245,6 +246,35 @@ def test_the_same_recommendation_cannot_be_executed_twice(
     assert TestCase.objects.filter(project=project).count() == 2
 
 
+def test_a_failed_execution_is_recorded_and_leaves_no_partial_rows(
+    monkeypatch: Any, scene: tuple[Project, Requirement]
+) -> None:
+    """A failed executor must be traceable, and must not half-apply.
+
+    The bookkeeping has to survive the rollback of whatever the executor wrote;
+    a single wrapping transaction would unwind both and leave a failure looking
+    identical to "nothing ever happened".
+    """
+    project, requirement = scene
+    _install(monkeypatch, project, FakeAIProvider(replies=[_generation_reply(3)]))
+    recommendation = _run_generation(project, requirement, count=3)
+    good, broken = recommendation.payload["test_cases"][:2]
+    payload = {"test_cases": [good, {**broken, "title": ""}]}
+
+    with pytest.raises(ConfirmationError):
+        execute_recommendation(recommendation, edited_payload=payload)
+
+    recommendation.refresh_from_db()
+    assert recommendation.status == RecommendationStatus.FAILED
+    assert AIConfirmation.objects.filter(
+        recommendation=recommendation, decision="confirmed"
+    ).exists()
+    assert AuditLog.objects.filter(action="ai_recommendation.failed").exists()
+    assert (
+        TestCase.objects.filter(project=project).count() == 0
+    ), "the first case must not survive a failure on the second"
+
+
 def test_an_edited_payload_is_what_gets_created(
     monkeypatch: Any, scene: tuple[Project, Requirement]
 ) -> None:
@@ -330,14 +360,15 @@ def test_a_successful_tool_call_is_recorded_as_ok(scene: tuple[Project, Requirem
 
 
 # ---------------------------------------------------------------------------
-def test_all_four_agents_are_registered() -> None:
+def test_every_built_in_agent_is_registered() -> None:
     assert set(AGENTS) >= {
         "code_impact",
         "requirement_analysis",
         "test_generation",
         "bug_investigation",
+        "rca",
     }
-    for code in ("requirement_analysis", "test_generation", "bug_investigation"):
+    for code in ("requirement_analysis", "test_generation", "bug_investigation", "rca"):
         assert agent_for(code).description
 
 
@@ -402,3 +433,65 @@ def test_an_unresolvable_target_fails_the_job(
     job.refresh_from_db()
     assert job.status == "failed"
     assert job.error
+
+
+# ---------------------------------------------------------------------------
+# generated keys follow the project's configured prefix
+# ---------------------------------------------------------------------------
+def test_generated_keys_use_the_project_prefix() -> None:
+    from services.executors import _next_bug_key, _next_test_case_key
+
+    project = cast(Project, ProjectFactory(org=OrganizationFactory(), key_prefix="PAY"))
+
+    assert _next_test_case_key(project) == "PAY-001"
+    assert _next_bug_key(project) == "PAY-1"
+
+
+def test_generated_keys_fall_back_when_no_prefix_is_set() -> None:
+    from services.executors import _next_bug_key, _next_test_case_key
+
+    project = cast(Project, ProjectFactory(org=OrganizationFactory()))
+
+    assert _next_test_case_key(project) == "TC-001"
+    assert _next_bug_key(project) == "BUG-1"
+
+
+def test_the_rca_agent_ranks_candidates_for_a_defect(
+    monkeypatch: Any, scene: tuple[Project, Requirement]
+) -> None:
+    """`rca` reuses the bug investigation chain but answers a different question."""
+    project, _requirement = scene
+    bug = Bug.objects.create(project=project, key="BUG-1", title="502 on a cold upstream")
+    reply = json.dumps(
+        {
+            "summary": "Two candidates, one better supported.",
+            "confidence": 0.5,
+            "facts": ["The retry path changed this week."],
+            "evidence": [],
+            "hypotheses": [],
+            "how_to_verify": [],
+            "data_gaps": ["No metrics were supplied."],
+            "candidates": [
+                {
+                    "cause": "the retry budget is too small",
+                    "confidence": "medium",
+                    "reasoning": "the backoff change landed before the first sighting",
+                    "how_to_verify": ["replay a 504 against staging"],
+                }
+            ],
+            "timeline": ["deploy at 10:00", "first symptom at 10:05"],
+            "affected_components": ["apps/gateway"],
+        }
+    )
+    _install(monkeypatch, project, FakeAIProvider(replies=[reply]))
+    job, _ = create_job(
+        project=project, agent_code="rca", target_type="bug", target_id=bug.key
+    )
+
+    outcome = run_analysis_job(str(job.pk))
+
+    assert outcome["status"] == "succeeded", job.error
+    finding = AIFinding.objects.get(project=project, agent_code="rca")
+    assert finding.payload["output"]["candidates"][0]["cause"] == "the retry budget is too small"
+    # It analyses; it does not propose a change.
+    assert AIRecommendation.objects.count() == 0

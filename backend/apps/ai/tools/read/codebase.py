@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from django.core.exceptions import ValidationError
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from pydantic import BaseModel, Field
 
 from apps.ai.tools.base import (
@@ -148,18 +148,21 @@ class GetDiffTool(Tool[GetDiffArgs]):
             if not changed_files.exists():
                 raise ToolScopeError(f"Commit {args.sha} did not change {args.path!r}.")
 
-        hunks = []
+        hunks: list[dict[str, Any]] = []
         total = 0
         truncated = False
         for changed in changed_files:
-            patch = changed.patch or ""
+            stored = changed.patch or ""
             remaining = MAX_DIFF_BYTES - total
-            if len(patch) > remaining:
-                patch = patch[: max(remaining, 0)]
+            encoded = stored.encode("utf-8")
+            if len(encoded) > remaining:
+                # Bounded in bytes, not characters: a CJK diff sliced by character would
+                # let the prompt blow past the budget this constant advertises.
+                stored = encoded[: max(remaining, 0)].decode("utf-8", errors="ignore")
                 truncated = True
-            total += len(patch)
+            total += len(stored.encode("utf-8"))
             hunks.append(
-                {"path": changed.path, "patch": patch, "stored_truncated": changed.truncated}
+                {"path": changed.path, "patch": stored, "stored_truncated": changed.truncated}
             )
             if total >= MAX_DIFF_BYTES:
                 break
@@ -229,7 +232,10 @@ class ListModulesTool(Tool[ListModulesArgs]):
     def run(self, context: ToolContext, args: ListModulesArgs) -> ToolResult:
         modules = Module.objects.filter(project=context.project)
         if args.query:
-            modules = modules.filter(path_prefix__icontains=args.query)
+            # Matches the tool's description: name *or* path prefix.
+            modules = modules.filter(
+                Q(name__icontains=args.query) | Q(path_prefix__icontains=args.query)
+            )
         rows = list(modules.order_by("path_prefix")[:100])
         return ToolResult(
             data=[

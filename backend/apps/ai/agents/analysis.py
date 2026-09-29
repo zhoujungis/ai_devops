@@ -18,7 +18,6 @@ from apps.ai.prompts.registry import load_prompt
 from apps.ai.providers.base import AIProvider, ChatMessage
 from apps.ai.schemas.common import AgentOutput
 from apps.ai.services.findings import record_finding, resolve_evidence
-from apps.ai.services.tracing import record_run
 from apps.ai.tools.base import ToolContext
 
 
@@ -49,17 +48,17 @@ class AnalysisAgent(BaseAgent):
             ChatMessage(role="user", content=_render(facts)),
         ]
 
-        output, result = provider.structured_output(messages, schema=self.schema, model=model)
-
-        record_run(
-            job=job,
-            provider_type=provider.provider_type,
+        # `answer` owns the tool loop and the trace, so every agent exposes the same
+        # read-only tools and records its interactions the same way.
+        output, _result = self.answer(
+            job,
+            context=context,
+            provider=provider,
             model=model,
-            capability=self.capability,
-            input_text="\n\n".join(message.content for message in messages),
+            messages=messages,
+            schema=self.schema,
             prompt_id=template.prompt_id,
             prompt_version=template.version,
-            result=result,
         )
 
         kept_evidence, dropped = resolve_evidence(context.project, list(output.evidence))

@@ -28,13 +28,22 @@ def assert_admin_survives(membership: Membership) -> None:
 
     Every other guard is a role check; this one is an invariant, which is why it
     lives in a service rather than in a permission class.
+
+    Must be called inside a transaction. The check counts the *other* admins and the
+    caller then writes, which is a read-then-write race: two concurrent demotions could
+    each see a surviving admin and both proceed, leaving the organization with none.
+    ``select_for_update`` locks the organization's admin rows so the second caller waits
+    and then observes the first one's committed change.
     """
     if membership.role != Role.ADMIN:
         return
-    others = Membership.objects.filter(org=membership.org, role=Role.ADMIN).exclude(
-        pk=membership.pk
+    others = list(
+        Membership.objects.select_for_update()
+        .filter(org_id=membership.org_id, role=Role.ADMIN)
+        .exclude(pk=membership.pk)
+        .values_list("pk", flat=True)
     )
-    if not others.exists():
+    if not others:
         raise LastAdminError()
 
 

@@ -12,7 +12,7 @@ from apps.codebase.models import Commit
 from apps.integrations.git.base import GitProviderError, RemoteBranch
 from apps.integrations.git.factory import provider_for
 from apps.integrations.models import Repository, WebhookEvent
-from services.linking import link_unlinked_commits
+from services.linking import link_bugs_in_commits, link_unlinked_commits
 
 logger = logging.getLogger(__name__)
 
@@ -57,11 +57,17 @@ def _handle_push(event: WebhookEvent) -> str:
     if len(shas) > MAX_COMMITS_PER_DELIVERY:
         shas = shas[-MAX_COMMITS_PER_DELIVERY:]
 
+    # One query for the whole delivery rather than an EXISTS per commit: a push can
+    # carry up to MAX_COMMITS_PER_DELIVERY commits.
+    known = set(
+        Commit.objects.filter(repository=repository, sha__in=shas).values_list("sha", flat=True)
+    )
+
     created = 0
     provider = provider_for(event.connection)
     try:
         for sha in shas:
-            if Commit.objects.filter(repository=repository, sha=sha).exists():
+            if sha in known:
                 continue
             try:
                 ingest_commit(repository, provider.get_commit(full_name, sha))
@@ -75,6 +81,7 @@ def _handle_push(event: WebhookEvent) -> str:
 
     _update_pushed_branch(repository, payload)
     linked = link_unlinked_commits(repository)
+    link_bugs_in_commits(repository)
     return f"ingested {created}/{len(shas)} commits, linked {linked} requirements"
 
 

@@ -23,13 +23,6 @@ media/
 staticfiles/
 db.sqlite3
 
-# ---- Node / frontend ----
-node_modules/
-frontend/dist/
-frontend/.vite/
-frontend/coverage/
-*.tsbuildinfo
-
 # ---- Env / secrets ----
 .env
 .env.*
@@ -43,3 +36,7 @@ Thumbs.db
 
 # ---- Local tooling ----
 .commandcode/
+# Runtime scratch: dev logs live here, and a scratch token file has landed here
+# before. Nothing in .run/ is meant to be committed.
+.run/
+.workbuddy/

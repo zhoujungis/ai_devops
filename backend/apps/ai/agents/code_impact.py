@@ -19,13 +19,12 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from apps.ai.agents.base import AgentError, BaseAgent, register_agent
+from apps.ai.agents.base import AgentError, BaseAgent, matches_uuid, register_agent
 from apps.ai.models import AIAnalysisJob, FindingSeverity
 from apps.ai.prompts.registry import load_prompt
 from apps.ai.providers.base import AIProvider, ChatMessage
 from apps.ai.schemas.code_impact import CodeImpactOutput
 from apps.ai.services.findings import record_finding, resolve_evidence
-from apps.ai.services.tracing import record_run
 from apps.ai.tools.base import ToolContext
 from apps.codebase.models import Commit
 from apps.risk.engine import RiskEngine
@@ -66,18 +65,17 @@ class CodeImpactAgent(BaseAgent):
             ChatMessage(role="user", content=_render_facts(explanation, assessment)),
         ]
 
-        output, result = provider.structured_output(messages, schema=CodeImpactOutput, model=model)
-        assert isinstance(output, CodeImpactOutput)  # narrowed for the type checker
-
-        record_run(
-            job=job,
-            provider_type=provider.provider_type,
+        # The tool loop and the trace live in `answer`, so this agent exposes exactly
+        # the same read-only tools as every other one.
+        output, _result = self.answer(
+            job,
+            context=context,
+            provider=provider,
             model=model,
-            capability=self.capability,
-            input_text="\n\n".join(message.content for message in messages),
+            messages=messages,
+            schema=CodeImpactOutput,
             prompt_id=template.prompt_id,
             prompt_version=template.version,
-            result=result,
         )
 
         kept_evidence, dropped = resolve_evidence(context.project, list(output.evidence))
@@ -129,9 +127,8 @@ class CodeImpactAgent(BaseAgent):
     def _target_commit(job: AIAnalysisJob, context: ToolContext) -> Commit:
         """Resolve the commit from the job's target, scoped to the job's project."""
         queryset = Commit.objects.filter(repository__project=context.project)
-        commit = (
-            queryset.filter(pk=job.target_id).first() if job.target_id else None
-        ) or queryset.filter(sha=job.target_id).first()
+        by_pk = queryset.filter(pk=job.target_id).first() if matches_uuid(job.target_id) else None
+        commit = by_pk or (queryset.filter(sha=job.target_id).first() if job.target_id else None)
 
         if commit is None:
             # An AgentError, not a bare ValueError: the job runner treats agent errors

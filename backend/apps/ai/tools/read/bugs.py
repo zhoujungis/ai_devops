@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from django.db.models import Q
 from pydantic import BaseModel, Field
 
 from apps.ai.tools.base import Citation, Tool, ToolContext, ToolResult
@@ -35,7 +36,14 @@ class SearchBugTool(Tool[SearchBugArgs]):
         if not args.include_closed:
             queryset = queryset.exclude(status__in=[BugStatus.CLOSED, BugStatus.RESOLVED])
         if args.query:
-            queryset = queryset.filter(title__icontains=args.query)
+            # The tool tells the model it searches the title, description and error type,
+            # so it has to — a description that promises more than the query delivers
+            # makes the model conclude "nothing found".
+            queryset = queryset.filter(
+                Q(title__icontains=args.query)
+                | Q(description__icontains=args.query)
+                | Q(error_type__icontains=args.query)
+            )
         if args.severity:
             queryset = queryset.filter(severity=args.severity)
         if args.module_path_prefix:

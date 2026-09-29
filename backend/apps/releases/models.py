@@ -43,6 +43,11 @@ class Release(BaseModel, ScopedModel):
                 fields=["project", "version"], name="uniq_release_project_version"
             ),
         ]
+        # Release lists filter on status; the risk engine's release-proximity signal
+        # reads the soonest planned release for a project.
+        indexes = [
+            models.Index(fields=["project", "status"], name="idx_release_project_status"),
+        ]
 
     def __str__(self) -> str:
         return self.version
@@ -71,19 +76,3 @@ class ReleaseCommitLink(EntityLink):
 
     def __str__(self) -> str:
         return f"{self.release.version} @ {self.commit.short_sha}"
-
-
-class ReleaseRiskSnapshot(BaseModel):
-    """A point-in-time risk score for a release, written by the risk engine."""
-
-    release = models.ForeignKey(Release, on_delete=models.CASCADE, related_name="risk_snapshots")
-    score = models.FloatField(default=0.0)
-    level = models.CharField(max_length=16, default="low")
-    breakdown = models.JSONField(default=list, blank=True)
-    computed_at = models.DateTimeField()
-
-    class Meta(BaseModel.Meta):
-        ordering = ("-computed_at",)
-
-    def __str__(self) -> str:
-        return f"{self.release.version} risk {self.score:.0f}"

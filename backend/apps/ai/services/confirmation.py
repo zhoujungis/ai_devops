@@ -122,7 +122,6 @@ def propose(
     )
 
 
-@transaction.atomic
 def execute_recommendation(
     recommendation: AIRecommendation,
     *,
@@ -132,8 +131,12 @@ def execute_recommendation(
 ) -> AIRecommendation:
     """Run the executor for a confirmed recommendation.
 
-    Atomic: a partially applied proposal is worse than a failed one, because nobody
-    can tell afterwards what made it in.
+    Atomicity is scoped deliberately. The executor runs in its own transaction, so
+    a half-applied proposal leaves nothing behind. The success or failure bookkeeping
+    is written *outside* that transaction — a single outer ``atomic`` would unwind the
+    failure record along with the executor's partial writes, so a failed execution
+    would leave no trace and the recommendation stuck as pending. The guarantee is
+    that every execution outcome is recorded, whichever way it goes.
     """
     if recommendation.status != RecommendationStatus.PENDING:
         raise ConfirmationError(
@@ -151,52 +154,55 @@ def execute_recommendation(
     )
 
     try:
-        result = executor(context)
+        with transaction.atomic():
+            result = executor(context)
     except Exception as exc:
-        recommendation.status = RecommendationStatus.FAILED
+        with transaction.atomic():
+            recommendation.status = RecommendationStatus.FAILED
+            recommendation.save(update_fields=["status", "updated_at"])
+            AIConfirmation.objects.create(
+                recommendation=recommendation,
+                requested_by=user,
+                decision=ConfirmationDecision.CONFIRMED,
+                edited_payload=payload,
+                executor_code=recommendation.type,
+                result={"error": f"{type(exc).__name__}: {exc}"},
+                executed_at=timezone.now(),
+            )
+            record_human_action(
+                org=recommendation.project.org,
+                user=user,
+                action="ai_recommendation.failed",
+                target_type="ai_recommendation",
+                target_id=str(recommendation.pk),
+                after={"error": str(exc), "executor": recommendation.type},
+                request_id=request_id,
+            )
+        raise
+
+    with transaction.atomic():
+        recommendation.status = RecommendationStatus.EXECUTED
         recommendation.save(update_fields=["status", "updated_at"])
-        AIConfirmation.objects.create(
+
+        confirmation = AIConfirmation.objects.create(
             recommendation=recommendation,
             requested_by=user,
             decision=ConfirmationDecision.CONFIRMED,
             edited_payload=payload,
             executor_code=recommendation.type,
-            result={"error": f"{type(exc).__name__}: {exc}"},
+            result={"summary": result.summary, "created": list(result.created)},
             executed_at=timezone.now(),
         )
-        record_human_action(
-            org=recommendation.project.org,
+
+        _audit_outcome(
+            recommendation=recommendation,
             user=user,
-            action="ai_recommendation.failed",
-            target_type="ai_recommendation",
-            target_id=str(recommendation.pk),
-            after={"error": str(exc), "executor": recommendation.type},
+            decision=ConfirmationDecision.CONFIRMED,
+            executor_code=recommendation.type,
+            after={"summary": result.summary, "created": list(result.created)},
             request_id=request_id,
+            confirmation=confirmation,
         )
-        raise
-
-    recommendation.status = RecommendationStatus.EXECUTED
-    recommendation.save(update_fields=["status", "updated_at"])
-
-    confirmation = AIConfirmation.objects.create(
-        recommendation=recommendation,
-        requested_by=user,
-        decision=ConfirmationDecision.CONFIRMED,
-        edited_payload=payload,
-        executor_code=recommendation.type,
-        result={"summary": result.summary, "created": list(result.created)},
-        executed_at=timezone.now(),
-    )
-
-    _audit_outcome(
-        recommendation=recommendation,
-        user=user,
-        decision=ConfirmationDecision.CONFIRMED,
-        executor_code=recommendation.type,
-        after={"summary": result.summary, "created": list(result.created)},
-        request_id=request_id,
-        confirmation=confirmation,
-    )
     return recommendation
 
 

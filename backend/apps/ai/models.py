@@ -156,6 +156,9 @@ class AIAnalysisJob(BaseModel, ScopedModel):
                 name="uniq_ai_job_idempotency",
             ),
         ]
+        indexes = [
+            models.Index(fields=["project", "status"], name="idx_aijob_project_status"),
+        ]
 
     def __str__(self) -> str:
         return f"{self.agent_code} ({self.status})"
@@ -313,6 +316,10 @@ class AIFinding(BaseModel, ScopedModel):
                 name="uniq_ai_finding_dedupe",
             ),
         ]
+        indexes = [
+            models.Index(fields=["project", "status"], name="idx_aifinding_project_status"),
+            models.Index(fields=["project", "severity"], name="idx_aifinding_project_severity"),
+        ]
 
     def __str__(self) -> str:
         return f"[{self.severity}] {self.title}"
@@ -370,6 +377,9 @@ class AIRecommendation(BaseModel, ScopedModel):
 
     class Meta(BaseModel.Meta):
         ordering = ("-created_at",)
+        indexes = [
+            models.Index(fields=["project", "status"], name="idx_airec_project_status"),
+        ]
 
     def __str__(self) -> str:
         return f"{self.type} ({self.status})"

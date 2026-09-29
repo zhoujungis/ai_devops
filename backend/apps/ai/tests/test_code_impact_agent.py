@@ -133,6 +133,19 @@ def test_the_agent_produces_a_validated_analysis(monkeypatch: Any) -> None:
     assert job.error == ""
 
 
+def test_the_target_may_be_a_sha_rather_than_a_pk(monkeypatch: Any) -> None:
+    """Both shapes are valid targets, and the pk lookup must not throw on a sha."""
+    project, commit = _scene()
+    _install_provider(monkeypatch, project, FakeAIProvider(replies=[_reply()]))
+    job, _ = create_job(
+        project=project, agent_code="code_impact", target_type="commit", target_id=commit.sha
+    )
+
+    outcome = run_analysis_job(str(job.pk))
+
+    assert outcome["status"] == "succeeded", job.error
+
+
 def test_the_recorded_score_is_the_engines_and_its_breakdown_adds_up(monkeypatch: Any) -> None:
     project, commit = _scene()
     provider = FakeAIProvider(replies=[_reply()])

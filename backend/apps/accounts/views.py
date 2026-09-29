@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any, ClassVar, cast
 
 from django.db import transaction
+from django.db.models import Prefetch
 from drf_spectacular.utils import extend_schema
 from rest_framework import status, viewsets
 from rest_framework.generics import RetrieveUpdateAPIView
@@ -17,6 +18,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework_simplejwt.views import TokenRefreshView
 
 from apps.accounts.models import Membership, Organization, Project, ProjectMembership, User
 from apps.accounts.permissions import (
@@ -46,6 +48,8 @@ class RegisterView(APIView):
 
     authentication_classes = ()
     permission_classes = (AllowAny,)
+    # Unauthenticated and writes a row per call: the natural target for signup abuse.
+    throttle_scope = "register"
 
     @extend_schema(request=RegisterSerializer, responses={201: LoginResponseSerializer})
     def post(self, request: Request) -> Response:
@@ -63,6 +67,9 @@ class LoginView(APIView):
 
     authentication_classes = ()
     permission_classes = (AllowAny,)
+    # Every attempt runs a password hash, so an unthrottled login is both a
+    # credential-stuffing surface and a cheap CPU-exhaustion vector.
+    throttle_scope = "login"
 
     @extend_schema(request=LoginSerializer, responses={200: LoginResponseSerializer})
     def post(self, request: Request) -> Response:
@@ -76,6 +83,16 @@ class LoginView(APIView):
                 "user": UserSerializer(data["user"]).data,
             }
         )
+
+
+class RefreshView(TokenRefreshView):
+    """Exchange a refresh token for a new access token.
+
+    A subclass only to attach a throttle scope: the upstream view is
+    unauthenticated, so it needs the same protection as login.
+    """
+
+    throttle_scope = "refresh"
 
 
 class LogoutView(APIView):
@@ -118,7 +135,16 @@ class OrganizationViewSet(ScopedRoleViewMixin, viewsets.ModelViewSet):
     }
 
     def get_queryset(self) -> Any:
-        return Organization.objects.accessible_to(self.request.user)
+        user = self.request.user
+        # Prefetch the caller's membership so the serializer's `role` field does not
+        # issue one query per organization.
+        return Organization.objects.accessible_to(user).prefetch_related(
+            Prefetch(
+                "memberships",
+                queryset=Membership.objects.filter(user=user).only("id", "role", "org_id"),
+                to_attr="viewer_memberships",
+            )
+        )
 
     def perform_create(self, serializer: Any) -> None:
         # Starting an organization makes the creator its first admin; without this
@@ -153,6 +179,25 @@ class OrganizationMemberViewSet(ScopedRoleViewMixin, viewsets.ModelViewSet):
     def perform_create(self, serializer: Any) -> None:
         serializer.save(org=require_scope_org(self))
 
+    @transaction.atomic
+    def perform_update(self, serializer: Any) -> None:
+        """Guard the last admin and write in one transaction.
+
+        The check + write have to share a transaction for the row lock in
+        :func:`assert_admin_survives` to mean anything; and it only applies when the
+        role is actually being reduced, so an unrelated patch is not blocked.
+        """
+        instance = serializer.instance
+        requested = serializer.validated_data.get("role")
+        if (
+            requested is not None
+            and Role(instance.role) is Role.ADMIN
+            and Role(requested) is not Role.ADMIN
+        ):
+            assert_admin_survives(instance)
+        serializer.save()
+
+    @transaction.atomic
     def perform_destroy(self, instance: Membership) -> None:
         assert_admin_survives(instance)
         instance.delete()
@@ -177,7 +222,27 @@ class ProjectViewSet(ScopedRoleViewMixin, viewsets.ModelViewSet):
         if org is None:
             # No scope in the URL (schema generation, introspection): no rows.
             return Project.objects.none()
-        return Project.objects.filter(org=org).select_related("org")
+        user = self.request.user
+        # `role` on each project is the higher of the org and project roles, so both
+        # memberships are prefetched — otherwise every row costs two queries.
+        return (
+            Project.objects.filter(org=org)
+            .select_related("org")
+            .prefetch_related(
+                Prefetch(
+                    "memberships",
+                    queryset=ProjectMembership.objects.filter(user=user).only(
+                        "id", "role", "project_id"
+                    ),
+                    to_attr="viewer_project_memberships",
+                ),
+                Prefetch(
+                    "org__memberships",
+                    queryset=Membership.objects.filter(user=user).only("id", "role", "org_id"),
+                    to_attr="viewer_memberships",
+                ),
+            )
+        )
 
     def perform_create(self, serializer: Any) -> None:
         serializer.save(org=require_scope_org(self))

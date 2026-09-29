@@ -14,8 +14,9 @@ from apps.accounts.permissions import (
     require_scope_project,
 )
 from apps.accounts.roles import Role
-from apps.testing.models import TestCase, TestRun, TestSuite
+from apps.testing.models import CoverageSnapshot, TestCase, TestRun, TestSuite
 from apps.testing.serializers import (
+    CoverageSnapshotSerializer,
     TestCaseSerializer,
     TestRunSerializer,
     TestSuiteSerializer,
@@ -73,6 +74,9 @@ class TestSuiteViewSet(_ProjectScopedViewSet):
     lookup_url_kwarg = "test_suite_pk"
     model = TestSuite
     search_fields = ["name", "description"]
+    # Declared rather than left to the serializer: without it every field is orderable,
+    # which advertises orderings like `?ordering=kind` that mean nothing.
+    ordering_fields = ["name", "kind", "created_at"]
     ordering = ["name"]
 
 
@@ -85,7 +89,32 @@ class TestRunViewSet(_ProjectScopedViewSet):
     ordering = ["-created_at"]
 
     def get_queryset(self) -> Any:
-        return super().get_queryset().select_related("suite", "commit")
+        # `results` is nested in the serializer; without the prefetch every run on a
+        # page issues its own query for them.
+        return super().get_queryset().select_related("suite", "commit").prefetch_related("results")
+
+    def perform_create(self, serializer: Any) -> None:
+        serializer.save(project=require_scope_project(self))
+
+
+class CoverageSnapshotViewSet(_ProjectScopedViewSet):
+    """Coverage measurements are appended, never edited: a snapshot is a fact.
+
+    This is the write path the risk engine's `coverage_gap` signal reads; without it
+    that signal could only ever be fed through the ORM.
+    """
+
+    serializer_class = CoverageSnapshotSerializer
+    lookup_url_kwarg = "snapshot_pk"
+    model = CoverageSnapshot
+    filterset_fields = ["module", "source"]
+    ordering_fields = ["captured_at"]
+    ordering = ["-captured_at"]
+    # A snapshot is a measurement at a point in time; rewriting one would make it a lie.
+    http_method_names = ["get", "post", "head", "options"]
+
+    def get_queryset(self) -> Any:
+        return super().get_queryset().select_related("module")
 
     def perform_create(self, serializer: Any) -> None:
         serializer.save(project=require_scope_project(self))

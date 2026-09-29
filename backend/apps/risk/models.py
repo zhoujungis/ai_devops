@@ -1,8 +1,8 @@
-"""Risk configuration and stored assessments.
+"""Risk configuration: the tunable signal weights.
 
-``RiskSignal`` from the plan is deliberately absent: :attr:`RiskScore.breakdown`
-already holds every signal with its raw value, normalisation, weight and
-contribution. A parallel table would be the same numbers twice, free to drift.
+Only the configuration lives here. A score is a function of the current data — storing
+one would make it stale the moment anything changed — so it is computed on demand by
+:mod:`apps.risk.engine` and never persisted.
 """
 
 from __future__ import annotations
@@ -14,14 +14,6 @@ from django.db import models
 
 from apps.accounts.models import Organization, Project
 from apps.core.models import BaseModel
-from apps.core.scoping import ScopedModel
-
-
-class RiskSubject(models.TextChoices):
-    COMMIT = "commit", "Commit"
-    MODULE = "module", "Module"
-    RELEASE = "release", "Release"
-    PROJECT = "project", "Project"
 
 
 class RiskLevel(models.TextChoices):
@@ -72,7 +64,6 @@ class RiskRule(BaseModel):
     code = models.CharField(max_length=64)
     weight = models.FloatField()
     enabled = models.BooleanField(default=True)
-    params = models.JSONField(default=dict, blank=True)
     updated_by = models.ForeignKey(
         django_settings.AUTH_USER_MODEL,
         null=True,
@@ -110,33 +101,3 @@ class RiskRule(BaseModel):
     def __str__(self) -> str:
         scope = self.project or self.org or "default"
         return f"{self.code} @ {scope} = {self.weight}"
-
-
-class RiskScore(BaseModel, ScopedModel):
-    """A stored assessment, kept so risk can be trended rather than re-derived."""
-
-    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="risk_scores")
-    subject_type = models.CharField(max_length=16, choices=RiskSubject.choices)
-    subject_id = models.CharField(max_length=64)
-    score = models.FloatField()
-    level = models.CharField(max_length=16, choices=RiskLevel.choices)
-    #: The full decomposition: every signal with raw value, normalisation, weight and
-    #: contribution. This is what makes a score arguable rather than authoritative.
-    breakdown = models.JSONField(default=list, blank=True)
-    computed_at = models.DateTimeField()
-
-    class Meta(BaseModel.Meta):
-        ordering = ("-computed_at",)
-        indexes = [
-            models.Index(
-                fields=["project", "subject_type", "subject_id", "-computed_at"],
-                name="idx_riskscore_lookup",
-            ),
-        ]
-
-    def __str__(self) -> str:
-        return f"{self.subject_type}:{self.subject_id} {self.score:.0f} ({self.level})"
-
-    @classmethod
-    def scoped_for(cls, user: Any) -> models.QuerySet[RiskScore]:
-        return cls.objects.filter(project__in=Project.objects.accessible_to(user))

@@ -7,6 +7,8 @@ that lives only in the environment.
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 from cryptography.fernet import Fernet, InvalidToken
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
@@ -16,15 +18,15 @@ class EncryptionError(RuntimeError):
     """Raised when a stored ciphertext cannot be decrypted."""
 
 
-def get_fernet() -> Fernet:
-    """Build a Fernet instance from the configured key."""
-    key = str(getattr(settings, "FIELD_ENCRYPTION_KEY", "") or "")
-    if not key:
-        raise ImproperlyConfigured(
-            "FIELD_ENCRYPTION_KEY is not set. Generate one with: "
-            'python -c "from cryptography.fernet import Fernet; '
-            'print(Fernet.generate_key().decode())"'
-        )
+@lru_cache(maxsize=8)
+def _fernet_for_key(key: str) -> Fernet:
+    """Build (once) the cipher for a key.
+
+    Keyed on the key rather than on nothing so ``override_settings`` in tests still
+    takes effect, and cached because constructing a Fernet derives a key schedule —
+    doing it per row means listing N connections pays for it N times, since
+    ``EncryptedTextField.from_db_value`` decrypts on every read.
+    """
     try:
         return Fernet(key.encode("ascii"))
     except (ValueError, TypeError) as exc:
@@ -32,6 +34,18 @@ def get_fernet() -> Fernet:
             "FIELD_ENCRYPTION_KEY is not a valid Fernet key (expected 32 url-safe "
             "base64-encoded bytes)."
         ) from exc
+
+
+def get_fernet() -> Fernet:
+    """The Fernet instance for the configured key."""
+    key = str(getattr(settings, "FIELD_ENCRYPTION_KEY", "") or "")
+    if not key:
+        raise ImproperlyConfigured(
+            "FIELD_ENCRYPTION_KEY is not set. Generate one with: "
+            'python -c "from cryptography.fernet import Fernet; '
+            'print(Fernet.generate_key().decode())"'
+        )
+    return _fernet_for_key(key)
 
 
 def encrypt(plaintext: str) -> str:

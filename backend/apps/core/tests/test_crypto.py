@@ -5,7 +5,7 @@ from cryptography.fernet import Fernet
 from django.core.exceptions import ImproperlyConfigured
 from django.test import override_settings
 
-from apps.core.crypto import EncryptionError, decrypt, encrypt
+from apps.core.crypto import EncryptionError, decrypt, encrypt, get_fernet
 
 
 def test_round_trip() -> None:
@@ -47,3 +47,18 @@ def test_malformed_key_is_rejected() -> None:
         pytest.raises(ImproperlyConfigured),
     ):
         encrypt("value")
+
+
+def test_one_key_reuses_one_cipher() -> None:
+    """Reading N encrypted rows must not derive the key schedule N times."""
+    assert get_fernet() is get_fernet()
+
+
+def test_a_different_key_gets_its_own_cipher() -> None:
+    """Caching must not outlive an override, or tests would share state."""
+    original = get_fernet()
+
+    with override_settings(FIELD_ENCRYPTION_KEY=Fernet.generate_key().decode()):
+        assert get_fernet() is not original
+
+    assert get_fernet() is original

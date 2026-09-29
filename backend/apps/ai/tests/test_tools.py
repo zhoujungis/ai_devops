@@ -26,21 +26,35 @@ from apps.ai.tools.base import (
     ToolResult,
     ToolScopeError,
 )
+from apps.ai.tools.read.bugs import SearchBugArgs, SearchBugTool
 from apps.ai.tools.read.codebase import (
+    MAX_DIFF_BYTES,
     GetCommitArgs,
     GetCommitTool,
+    GetDiffArgs,
+    GetDiffTool,
+    ListModulesArgs,
+    ListModulesTool,
     SearchCommitArgs,
     SearchCommitTool,
 )
 from apps.ai.tools.read.correlation import ExplainCommitArgs, ExplainCommitTool
+from apps.ai.tools.read.testing import ListFailingTestsArgs, ListFailingTestsTool
 from apps.ai.tools.registry import ToolRegistry, load_default_tools, registry
+from apps.bugs.models import Bug
 from apps.codebase.ingest import ingest_commit
-from apps.codebase.models import Commit, Module
+from apps.codebase.models import Commit, Module, ModuleKind
 from apps.core.models import LinkSource
 from apps.integrations.tests.factories import build_repository
 from apps.integrations.tests.fakes import make_remote_commit, make_remote_file
 from apps.requirements.models import Requirement
-from apps.testing.models import TestCase, TestCaseModuleLink
+from apps.testing.models import (
+    TestCase,
+    TestCaseModuleLink,
+    TestResult,
+    TestRun,
+    TestRunStatus,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -110,6 +124,66 @@ def test_a_duplicate_tool_name_is_a_registration_error() -> None:
 
     with pytest.raises(Exception, match="already registered"):
         custom.register(GetCommitTool())
+
+
+# ---------------------------------------------------------------------------
+# a tool must do what its description tells the model it does
+# ---------------------------------------------------------------------------
+def test_search_bug_matches_the_description_and_the_error_type() -> None:
+    """Its description promises title, description and error type; the model trusts it."""
+    project, _commit = _scene()
+    Bug.objects.create(
+        project=project, key="BUG-1", title="Unrelated", description="a cold upstream 504"
+    )
+    Bug.objects.create(project=project, key="BUG-2", title="Unrelated", error_type="TimeoutError")
+
+    by_description = SearchBugTool().run(_context(project), SearchBugArgs(query="504"))
+    by_error_type = SearchBugTool().run(_context(project), SearchBugArgs(query="TimeoutError"))
+
+    assert [row["key"] for row in by_description.data] == ["BUG-1"]
+    assert [row["key"] for row in by_error_type.data] == ["BUG-2"]
+
+
+def test_list_modules_searches_the_name_as_well_as_the_path() -> None:
+    project, _commit = _scene()
+    Module.objects.create(
+        project=project,
+        path_prefix="src/zeta/",
+        name="Billing Core",
+        kind=ModuleKind.SERVICE,
+        language="python",
+    )
+
+    by_name = ListModulesTool().run(_context(project), ListModulesArgs(query="Billing"))
+    by_path = ListModulesTool().run(_context(project), ListModulesArgs(query="zeta"))
+
+    assert [row["name"] for row in by_name.data] == ["Billing Core"]
+    assert [row["path_prefix"] for row in by_path.data] == ["src/zeta/"]
+
+
+def test_list_failing_tests_reports_failures_not_skips() -> None:
+    """A skipped test never ran, so it is not evidence of a problem."""
+    project, _commit = _scene()
+    run = TestRun.objects.create(project=project, status=TestRunStatus.FAILED)
+    TestResult.objects.create(run=run, case_key="T-1", status="failed", error_message="boom")
+    TestResult.objects.create(run=run, case_key="T-2", status="skipped")
+    TestResult.objects.create(run=run, case_key="T-3", status="passed")
+
+    result = ListFailingTestsTool().run(_context(project), ListFailingTestsArgs())
+
+    assert [row["case_key"] for row in result.data["failures"]] == ["T-1"]
+
+
+def test_a_diff_is_bounded_in_bytes_not_characters() -> None:
+    project, commit = _scene()
+    changed = commit.files.get()
+    changed.patch = "修" * 20_000  # 20k characters, 60 KB of UTF-8
+    changed.save(update_fields=["patch"])
+
+    result = GetDiffTool().run(_context(project), GetDiffArgs(sha=commit.sha))
+
+    assert result.data["truncated"] is True
+    assert len(result.data["files"][0]["patch"].encode("utf-8")) <= MAX_DIFF_BYTES
 
 
 def test_an_unknown_tool_lists_what_exists() -> None:

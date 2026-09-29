@@ -14,6 +14,7 @@ from apps.ai.agents.base import (
 )
 from apps.ai.agents.bug_investigation import BugInvestigationAgent
 from apps.ai.agents.code_impact import CodeImpactAgent
+from apps.ai.agents.rca import RcaAgent
 from apps.ai.agents.requirement import RequirementAgent
 from apps.ai.agents.test_generation import TestGenerationAgent
 
@@ -23,6 +24,7 @@ __all__ = [
     "BaseAgent",
     "BugInvestigationAgent",
     "CodeImpactAgent",
+    "RcaAgent",
     "RequirementAgent",
     "TestGenerationAgent",
     "agent_for",

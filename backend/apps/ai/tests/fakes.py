@@ -26,16 +26,24 @@ class FakeAIProvider(AIProvider):
         replies: list[str] | None = None,
         tool_calls: list[tuple[ToolCall, ...]] | None = None,
         embedding_vector: list[float] | None = None,
+        verify_result: bool = True,
     ) -> None:
         self._replies = list(replies or [])
         self._tool_calls = list(tool_calls or [])
         self._embedding_vector = embedding_vector or [0.1, 0.2, 0.3]
+        self.verify_result = verify_result
         self.calls: list[list[ChatMessage]] = []
+        #: The tool list offered on each call, so a test can assert what the model was
+        #: allowed to reach rather than only what it answered.
+        self.tool_lists: list[list[dict[str, Any]] | None] = []
         self.embedding_calls: list[list[str]] = []
         self.closed = False
 
     def close(self) -> None:
         self.closed = True
+
+    def verify(self) -> bool:
+        return self.verify_result
 
     def chat(
         self,
@@ -47,6 +55,7 @@ class FakeAIProvider(AIProvider):
         max_tokens: int | None = None,
     ) -> ChatResult:
         self.calls.append(list(messages))
+        self.tool_lists.append(tools)
         content = self._replies.pop(0) if self._replies else "{}"
         calls = self._tool_calls.pop(0) if self._tool_calls else ()
         return ChatResult(

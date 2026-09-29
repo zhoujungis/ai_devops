@@ -69,6 +69,9 @@ class TestCase(BaseModel, ScopedModel):
         constraints = [
             models.UniqueConstraint(fields=["project", "key"], name="uniq_testcase_project_key"),
         ]
+        indexes = [
+            models.Index(fields=["project", "status"], name="idx_testcase_project_status"),
+        ]
 
     def __str__(self) -> str:
         return f"{self.key} {self.title}"
@@ -180,6 +183,9 @@ class TestRun(BaseModel, ScopedModel):
 
     class Meta(BaseModel.Meta):
         ordering = ("-created_at",)
+        indexes = [
+            models.Index(fields=["project", "status"], name="idx_testrun_project_status"),
+        ]
 
     def __str__(self) -> str:
         return f"run {self.pk} ({self.status})"
@@ -212,6 +218,10 @@ class TestResult(BaseModel):
 
     class Meta(BaseModel.Meta):
         ordering = ("-created_at",)
+        # The risk engine aggregates failure rates by result status.
+        indexes = [
+            models.Index(fields=["status"], name="idx_testresult_status"),
+        ]
 
     def __str__(self) -> str:
         return f"{self.case_key or self.test_case_id} {self.status}"
@@ -246,6 +256,10 @@ class CoverageSnapshot(BaseModel, ScopedModel):
 
     class Meta(BaseModel.Meta):
         ordering = ("-captured_at",)
+        # The risk engine reads the latest snapshot per module.
+        indexes = [
+            models.Index(fields=["module", "-captured_at"], name="idx_coverage_module_captured"),
+        ]
 
     def __str__(self) -> str:
         return f"coverage {self.line_rate:.2f}"

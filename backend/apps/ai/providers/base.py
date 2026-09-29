@@ -123,6 +123,15 @@ class AIProvider(ABC):
     def embedding(self, texts: list[str], *, model: str) -> list[list[float]]:
         """Embed each text, preserving order."""
 
+    def verify(self) -> bool:
+        """Whether the endpoint accepts the stored credentials.
+
+        ``False`` means "answered, and refused" — not "not implemented". A provider that
+        cannot check itself has to say so loudly rather than report a false negative and
+        have a working key marked invalid.
+        """
+        raise NotImplementedError(f"{type(self).__name__} cannot verify its credentials")
+
     def close(self) -> None:
         """Release HTTP resources. A stateless provider has nothing to release."""
         return None
@@ -167,7 +176,7 @@ class AIProvider(ABC):
         stop: a model that cannot produce the shape twice will not produce it on the
         fifth try either.
         """
-        instructions = _schema_instructions(schema)
+        instructions = schema_instructions(schema)
         prepared = list(messages)
         if prepared and prepared[0].role == "system":
             prepared[0] = ChatMessage(
@@ -204,7 +213,13 @@ class AIProvider(ABC):
                 ) from second_error
 
 
-def _schema_instructions(schema: type[BaseModel]) -> str:
+def schema_instructions(schema: type[BaseModel]) -> str:
+    """The system instruction that asks for JSON matching ``schema``.
+
+    Public because an agent has to inject it too: it lets the model answer with the
+    schema on the very first call, so a model that needs no tools costs one request
+    rather than two.
+    """
     return (
         "Reply with a single JSON object and nothing else — no prose, no markdown "
         "fence. It must validate against this JSON Schema:\n"

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -163,6 +163,56 @@ def test_an_empty_choice_list_is_an_error() -> None:
         _provider(handler).chat([ChatMessage(role="user", content="hi")], model="m")
 
 
+def test_deepseek_cache_hits_are_counted_as_cached_tokens() -> None:
+    """DeepSeek spells it `prompt_cache_hit_tokens`.
+
+    Reading only OpenAI's `prompt_tokens_details.cached_tokens` bills every cached
+    token at the full input rate, which is the opposite of what cost accounting is for.
+    """
+    payload = {
+        "model": "deepseek-chat",
+        "choices": [{"message": {"content": "hi"}, "finish_reason": "stop"}],
+        "usage": {
+            "prompt_tokens": 100,
+            "completion_tokens": 10,
+            "prompt_cache_hit_tokens": 60,
+        },
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=payload)
+
+    provider = OpenAICompatibleProvider(
+        provider_type="deepseek",
+        base_url="https://api.deepseek.com/v1",
+        api_key="k",
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = provider.chat([ChatMessage(role="user", content="hi")], model="deepseek-chat")
+
+    assert result.usage.input_tokens == 100
+    assert result.usage.cached_tokens == 60
+
+
+def test_a_non_json_body_is_a_typed_provider_error() -> None:
+    """A proxy in front of the vendor can answer 200 with HTML."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="<html>gateway</html>")
+
+    with pytest.raises(AIResponseError, match="non-JSON body"):
+        _provider(handler).chat([ChatMessage(role="user", content="hi")], model="m")
+
+
+def test_a_json_body_that_is_not_an_object_is_a_provider_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[1, 2, 3])
+
+    with pytest.raises(AIResponseError, match="where an object was expected"):
+        _provider(handler).chat([ChatMessage(role="user", content="hi")], model="m")
+
+
 # ---------------------------------------------------------------------------
 # structured_output
 # ---------------------------------------------------------------------------
@@ -252,3 +302,74 @@ def test_an_explicit_base_url_overrides_the_preset() -> None:
 
     provider = build(config)
     provider.close()  # constructing it is the assertion: the gateway URL is accepted
+
+
+# ---------------------------------------------------------------------------
+# choosing the default provider
+# ---------------------------------------------------------------------------
+def _provider_row(org: Any, label: str, **overrides: Any) -> Any:
+    from apps.ai.models import AIProviderConfig
+
+    return AIProviderConfig.objects.create(
+        org=org,
+        provider_type="openai",
+        label=label,
+        capability_models={"chat": "gpt-4o"},
+        **overrides,
+    )
+
+
+@pytest.mark.django_db
+def test_the_default_provider_wins_over_the_others() -> None:
+    from apps.accounts.models import Organization
+    from apps.accounts.tests.factories import OrganizationFactory
+    from apps.ai.providers.registry import default_config
+
+    org = cast(Organization, OrganizationFactory())
+    _provider_row(org, "Alpha")
+    _provider_row(org, "Beta", is_default=True)
+
+    chosen = default_config(org)
+
+    assert chosen is not None
+    assert chosen.label == "Beta"
+
+
+@pytest.mark.django_db
+def test_a_lone_provider_is_used_without_being_marked_default() -> None:
+    from apps.accounts.models import Organization
+    from apps.accounts.tests.factories import OrganizationFactory
+    from apps.ai.providers.registry import default_config
+
+    org = cast(Organization, OrganizationFactory())
+    _provider_row(org, "Only")
+
+    chosen = default_config(org)
+
+    assert chosen is not None
+    assert chosen.label == "Only"
+
+
+@pytest.mark.django_db
+def test_several_unmarked_providers_are_ambiguous_rather_than_guessed() -> None:
+    from apps.accounts.models import Organization
+    from apps.accounts.tests.factories import OrganizationFactory
+    from apps.ai.providers.registry import default_config
+
+    org = cast(Organization, OrganizationFactory())
+    _provider_row(org, "Alpha")
+    _provider_row(org, "Beta")
+
+    assert default_config(org) is None
+
+
+@pytest.mark.django_db
+def test_a_disabled_provider_is_never_chosen() -> None:
+    from apps.accounts.models import Organization
+    from apps.accounts.tests.factories import OrganizationFactory
+    from apps.ai.providers.registry import default_config
+
+    org = cast(Organization, OrganizationFactory())
+    _provider_row(org, "Off", status="disabled", is_default=True)
+
+    assert default_config(org) is None

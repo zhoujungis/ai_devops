@@ -56,6 +56,19 @@ class OpenAICompatibleProvider(AIProvider):
     def close(self) -> None:
         self._client.close()
 
+    def verify(self) -> bool:
+        """``GET /models``: needs the key where there is one, and no model name.
+
+        Unreachable and rejected both answer ``False``. That is the same contract the
+        git connections use, and it keeps the caller from having to tell two kinds of
+        "no" apart to decide whether to store the row.
+        """
+        try:
+            response = self._client.get("/models")
+        except httpx.HTTPError:
+            return False
+        return response.status_code < 400
+
     def __enter__(self) -> OpenAICompatibleProvider:
         return self
 
@@ -73,7 +86,21 @@ class OpenAICompatibleProvider(AIProvider):
             raise AIProviderError(
                 f"{self.provider_type} returned {response.status_code}: {response.text[:300]}"
             )
-        data: dict[str, Any] = response.json()
+        # A gateway or proxy in front of the vendor can answer 200 with HTML or an
+        # empty body. Without this, a JSON decode error would escape as an untyped
+        # ValueError and be retried as if it were transient.
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise AIResponseError(
+                f"{self.provider_type} returned a non-JSON body "
+                f"({response.status_code}): {response.text[:200]}"
+            ) from exc
+        if not isinstance(data, dict):
+            raise AIResponseError(
+                f"{self.provider_type} returned a JSON {type(data).__name__} where an "
+                "object was expected."
+            )
         return data
 
     def chat(
@@ -103,6 +130,7 @@ class OpenAICompatibleProvider(AIProvider):
             raise AIResponseError(f"{self.provider_type} returned no choices.")
         message = choices[0].get("message") or {}
         usage = data.get("usage") or {}
+        details = usage.get("prompt_tokens_details") or {}
 
         return ChatResult(
             content=message.get("content") or "",
@@ -110,9 +138,12 @@ class OpenAICompatibleProvider(AIProvider):
             usage=TokenUsage(
                 input_tokens=int(usage.get("prompt_tokens") or 0),
                 output_tokens=int(usage.get("completion_tokens") or 0),
-                # Both spellings are in the wild.
+                # OpenAI nests this under `prompt_tokens_details.cached_tokens`;
+                # DeepSeek reports `prompt_cache_hit_tokens`. Reading only the first
+                # spelling silently bills DeepSeek's cached tokens at the full input
+                # rate, which is exactly what the cost report is supposed to avoid.
                 cached_tokens=int(
-                    (usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0
+                    details.get("cached_tokens") or usage.get("prompt_cache_hit_tokens") or 0
                 ),
             ),
             latency_ms=timer.elapsed_ms,

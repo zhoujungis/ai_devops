@@ -2,17 +2,21 @@
 # underlying commands directly (see README).
 
 VENV ?= backend/.venv
+CLI_VENV ?= cli/.venv
 
 ifeq ($(OS),Windows_NT)
 	PY := $(VENV)/Scripts/python.exe
+	CLI_PY := $(CLI_VENV)/Scripts/python.exe
 else
 	PY := $(VENV)/bin/python
+	CLI_PY := $(CLI_VENV)/bin/python
 endif
 
 BACKEND := backend
+CLI := cli
 
 .DEFAULT_GOAL := help
-.PHONY: help venv install check migrate makemigrations test cov lint fmt typecheck verify run worker beat up down logs clean
+.PHONY: help venv install check migrate makemigrations test cov lint fmt typecheck verify run worker beat up down logs clean cli-venv cli-install cli-lint cli-typecheck cli-verify
 
 help:
 	@echo "venv          create the backend virtualenv"
@@ -31,6 +35,11 @@ help:
 	@echo "beat          run celery beat"
 	@echo "up / down     docker compose stack"
 	@echo "logs          tail docker compose logs"
+	@echo "cli-venv      create the terminal client virtualenv"
+	@echo "cli-install   install the terminal client (editable, with dev extras)"
+	@echo "cli-lint      ruff on the terminal client"
+	@echo "cli-typecheck mypy on the terminal client"
+	@echo "cli-verify    cli-lint + cli-typecheck"
 
 venv:
 	python -m venv $(VENV)
@@ -84,5 +93,23 @@ logs:
 	docker compose logs -f
 
 clean:
-	rm -rf $(VENV) .pytest_cache .mypy_cache .ruff_cache
+	rm -rf $(VENV) $(CLI_VENV) .pytest_cache .mypy_cache .ruff_cache
 	find . -name '__pycache__' -type d -prune -exec rm -rf {} +
+
+# ---------------------------------------------------------------------------
+# Terminal client (cli/)
+# ---------------------------------------------------------------------------
+cli-venv:
+	python -m venv $(CLI_VENV)
+
+cli-install:
+	$(CLI_PY) -m pip install --upgrade pip
+	$(CLI_PY) -m pip install -e "$(CLI)[dev]"
+
+cli-lint:
+	cd $(CLI) && ../$(CLI_PY) -m ruff check .
+
+cli-typecheck:
+	cd $(CLI) && ../$(CLI_PY) -m mypy ai_devops_cli
+
+cli-verify: cli-lint cli-typecheck

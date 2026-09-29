@@ -9,9 +9,14 @@ from apps.ai import views
 analysis_list = views.AnalysisJobViewSet.as_view({"get": "list", "post": "create"})
 analysis_detail = views.AnalysisJobViewSet.as_view({"get": "retrieve"})
 analysis_agents = views.AnalysisJobViewSet.as_view({"get": "agents"})
+analysis_trace = views.AnalysisJobViewSet.as_view({"get": "trace"})
 
 finding_list = views.AIFindingViewSet.as_view({"get": "list"})
 finding_detail = views.AIFindingViewSet.as_view({"get": "retrieve"})
+finding_status = views.AIFindingViewSet.as_view({"post": "set_status"})
+
+audit_list = views.AuditLogViewSet.as_view({"get": "list"})
+audit_detail = views.AuditLogViewSet.as_view({"get": "retrieve"})
 
 recommendation_list = views.AIRecommendationViewSet.as_view({"get": "list"})
 recommendation_detail = views.AIRecommendationViewSet.as_view({"get": "retrieve"})
@@ -22,6 +27,7 @@ provider_list = views.AIProviderConfigViewSet.as_view({"get": "list", "post": "c
 provider_detail = views.AIProviderConfigViewSet.as_view(
     {"get": "retrieve", "patch": "partial_update", "delete": "destroy"}
 )
+provider_verify = views.AIProviderConfigViewSet.as_view({"post": "verify"})
 
 _BASE = "orgs/<uuid:org_pk>/projects/<uuid:project_pk>"
 
@@ -30,8 +36,14 @@ urlpatterns: list[URLPattern] = [
     path(f"{_BASE}/ai/analyses", analysis_list, name="ai-analysis-list"),
     path(f"{_BASE}/ai/analyses/agents", analysis_agents, name="ai-analysis-agents"),
     path(f"{_BASE}/ai/jobs/<uuid:job_pk>", analysis_detail, name="ai-analysis-detail"),
+    path(f"{_BASE}/ai/jobs/<uuid:job_pk>/trace", analysis_trace, name="ai-analysis-trace"),
     path(f"{_BASE}/ai/findings", finding_list, name="ai-finding-list"),
     path(f"{_BASE}/ai/findings/<uuid:finding_pk>", finding_detail, name="ai-finding-detail"),
+    path(
+        f"{_BASE}/ai/findings/<uuid:finding_pk>/status",
+        finding_status,
+        name="ai-finding-status",
+    ),
     path(
         f"{_BASE}/ai/recommendations",
         recommendation_list,
@@ -58,5 +70,17 @@ urlpatterns: list[URLPattern] = [
         "orgs/<uuid:org_pk>/ai-providers/<uuid:provider_pk>",
         provider_detail,
         name="ai-provider-detail",
+    ),
+    path(
+        "orgs/<uuid:org_pk>/ai-providers/<uuid:provider_pk>/verify",
+        provider_verify,
+        name="ai-provider-verify",
+    ),
+    # The audit trail is organization-wide and admin-only.
+    path("orgs/<uuid:org_pk>/audit-logs", audit_list, name="audit-log-list"),
+    path(
+        "orgs/<uuid:org_pk>/audit-logs/<uuid:audit_pk>",
+        audit_detail,
+        name="audit-log-detail",
     ),
 ]

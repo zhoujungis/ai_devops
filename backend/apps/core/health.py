@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from django.core.cache import cache
@@ -11,6 +12,8 @@ from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+logger = logging.getLogger(__name__)
 
 _CACHE_SENTINEL = "readiness-probe"
 
@@ -48,15 +51,18 @@ class ReadinessView(APIView):
 
 
 def _check_database() -> dict[str, Any]:
-    # A probe reports failure instead of raising, whatever goes wrong.
+    # A probe reports failure instead of raising, whatever goes wrong. The detail is
+    # logged, not returned: this view is unauthenticated, and a connection error
+    # names the host, port and user.
     try:
         with connection.cursor() as cursor:
             cursor.execute("SELECT 1")
             cursor.fetchone()
             cursor.execute("SELECT extversion FROM pg_extension WHERE extname = 'vector'")
             row = cursor.fetchone()
-    except Exception as exc:
-        return {"ok": False, "pgvector": None, "error": f"{type(exc).__name__}: {exc}"}
+    except Exception:
+        logger.exception("Readiness check: database is unreachable")
+        return {"ok": False, "pgvector": None, "error": "database unreachable"}
 
     pgvector_version = row[0] if row else None
     return {
@@ -68,9 +74,13 @@ def _check_database() -> dict[str, Any]:
 
 def _check_cache() -> dict[str, Any]:
     try:
-        cache.set(_CACHE_SENTINEL, "1", 5)
+        # `touch` proves the cache is reachable without rewriting the value on every
+        # probe; the sentinel is created once and merely renewed afterwards.
+        if not cache.touch(_CACHE_SENTINEL, 60):
+            cache.set(_CACHE_SENTINEL, "1", 60)
         value = cache.get(_CACHE_SENTINEL)
-    except Exception as exc:
-        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    except Exception:
+        logger.exception("Readiness check: cache is unreachable")
+        return {"ok": False, "error": "cache unreachable"}
 
     return {"ok": value == "1", "error": None if value == "1" else "cache round-trip failed"}

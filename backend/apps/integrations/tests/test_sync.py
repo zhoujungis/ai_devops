@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any, cast
 
 import pytest
+from django.utils import timezone
 
 from apps.accounts.models import Project
 from apps.accounts.tests.factories import OrganizationFactory, ProjectFactory
@@ -12,6 +14,7 @@ from apps.codebase.models import Branch, Commit, Module
 from apps.integrations.git.base import GitProviderError, RemoteBranch, RemoteCommit
 from apps.integrations.models import Repository, SyncStatus
 from apps.integrations.sync import sync_repository
+from apps.integrations.tasks import sync_stale_repositories
 from apps.integrations.tests.factories import build_repository
 from apps.integrations.tests.fakes import FakeGitProvider, failing_provider, make_remote_commit
 
@@ -159,3 +162,38 @@ def test_the_rate_limit_is_recorded(repository: Repository) -> None:
     result = sync_repository(repository, provider=provider)
 
     assert result.rate_limit_remaining == 12
+
+
+# ---------------------------------------------------------------------------
+# the periodic reconciliation
+# ---------------------------------------------------------------------------
+class _Recorder:
+    """Stands in for the Celery task so nothing reaches the network."""
+
+    def __init__(self, sink: list[str]) -> None:
+        self._sink = sink
+
+    def delay(self, repository_id: str) -> None:
+        self._sink.append(repository_id)
+
+
+def test_only_stale_and_idle_repositories_are_queued(
+    repository: Repository, monkeypatch: Any
+) -> None:
+    queued: list[str] = []
+    monkeypatch.setattr("apps.integrations.tasks.sync_repository_task", _Recorder(queued))
+
+    # Never synced counts as stale.
+    assert sync_stale_repositories() == {"queued": 1}
+    assert queued == [str(repository.pk)]
+
+    queued.clear()
+    Repository.objects.filter(pk=repository.pk).update(last_synced_at=timezone.now())
+    assert sync_stale_repositories() == {"queued": 0}
+
+    # Old, but still syncing: queueing it again is what the endpoint guard exists to
+    # prevent, so the sweeper must not do it either.
+    Repository.objects.filter(pk=repository.pk).update(
+        last_synced_at=timezone.now() - timedelta(hours=4), sync_status=SyncStatus.RUNNING
+    )
+    assert sync_stale_repositories() == {"queued": 0}

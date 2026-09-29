@@ -24,7 +24,7 @@ from apps.accounts.models import (
     User,
 )
 from apps.accounts.roles import Role
-from apps.accounts.services import assert_admin_survives, issue_tokens
+from apps.accounts.services import issue_tokens
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -144,11 +144,8 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         if self.instance is None and not attrs.get("user_email"):
             raise serializers.ValidationError({"user_email": "This field is required."})
-        if self.instance is not None:
-            current: Role = Role(self.instance.role)
-            requested = attrs.get("role", self.instance.role)
-            if current is Role.ADMIN and requested != Role.ADMIN:
-                assert_admin_survives(self.instance)
+        # The last-admin invariant is enforced in OrganizationMemberViewSet, inside the
+        # same transaction as the write, so the row lock it takes actually holds.
         return attrs
 
     def create(self, validated_data: dict[str, Any]) -> Membership:
@@ -171,7 +168,10 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
 
 class ProjectSerializer(serializers.ModelSerializer):
     role = serializers.SerializerMethodField()
-    org = serializers.UUIDField(read_only=True)
+    # Reading `org` (the relation) with a UUIDField would serialise the Organization
+    # through `str()` and yield its display name; every project-scoped URL the client
+    # builds from it would then 404. `source="org_id"` serialises the id itself.
+    org = serializers.UUIDField(source="org_id", read_only=True)
 
     class Meta:
         model = Project

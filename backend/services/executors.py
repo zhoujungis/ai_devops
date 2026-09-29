@@ -38,22 +38,40 @@ def _coerce(value: Any, allowed: set[str], fallback: str) -> str:
     return candidate if candidate in allowed else fallback
 
 
+def _key_prefix(project: Any, fallback: str) -> str:
+    """The project's configured key prefix, or a default.
+
+    ``Project.key_prefix`` exists so a team's keys look like their own (``PAY-18``);
+    without it the historical ``TC`` / ``BUG`` default keeps existing projects stable.
+    """
+    candidate = str(getattr(project, "key_prefix", "") or "").strip().upper()
+    return candidate or fallback
+
+
 def _next_test_case_key(project: Any) -> str:
-    index = TestCase.objects.filter(project=project).count()
-    while True:
+    """The first unused ``<prefix>-nnn``, in one query.
+
+    Counting rows and probing candidate keys cost a query per existing row; this reads
+    the project's keys once. It is still read-then-write, so two concurrent approvals
+    on one project can pick the same key — the unique constraint then rejects the
+    loser rather than letting it corrupt anything.
+    """
+    prefix = _key_prefix(project, "TC")
+    existing = set(TestCase.objects.filter(project=project).values_list("key", flat=True))
+    index = 1
+    while f"{prefix}-{index:03d}" in existing:
         index += 1
-        candidate = f"TC-{index:03d}"
-        if not TestCase.objects.filter(project=project, key=candidate).exists():
-            return candidate
+    return f"{prefix}-{index:03d}"
 
 
 def _next_bug_key(project: Any) -> str:
-    index = Bug.objects.filter(project=project).count()
-    while True:
+    """The first unused ``<prefix>-n``. See :func:`_next_test_case_key` for the caveat."""
+    prefix = _key_prefix(project, "BUG")
+    existing = set(Bug.objects.filter(project=project).values_list("key", flat=True))
+    index = 1
+    while f"{prefix}-{index}" in existing:
         index += 1
-        candidate = f"BUG-{index}"
-        if not Bug.objects.filter(project=project, key=candidate).exists():
-            return candidate
+    return f"{prefix}-{index}"
 
 
 @register_executor("create_test_cases")

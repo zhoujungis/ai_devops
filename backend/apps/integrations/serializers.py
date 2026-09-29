@@ -60,7 +60,9 @@ class GitConnectionSerializer(serializers.ModelSerializer):
 class RepositorySerializer(serializers.ModelSerializer):
     """Read/update view of a tracked repository."""
 
-    connection = serializers.UUIDField(read_only=True)
+    # Same trap as ProjectSerializer.org: reading the relation would call `str()` on
+    # the connection and return its label, not its id. Read the id explicitly.
+    connection = serializers.UUIDField(source="connection_id", read_only=True)
 
     class Meta:
         model = Repository

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.db import transaction
 from rest_framework import serializers
 
 from apps.core.serializers import ProjectScopedUniqueMixin
@@ -67,12 +68,14 @@ class RequirementSerializer(ProjectScopedUniqueMixin, serializers.ModelSerialize
     def validate_external_key(self, value: str) -> str:
         return value.strip().upper()
 
+    @transaction.atomic
     def create(self, validated_data: dict[str, Any]) -> Requirement:
         items = validated_data.pop("items", [])
         requirement = super().create(validated_data)
         self._replace_items(requirement, items)
         return requirement
 
+    @transaction.atomic
     def update(self, instance: Requirement, validated_data: dict[str, Any]) -> Requirement:
         items = validated_data.pop("items", None)
         requirement = super().update(instance, validated_data)
@@ -82,6 +85,8 @@ class RequirementSerializer(ProjectScopedUniqueMixin, serializers.ModelSerialize
 
     @staticmethod
     def _replace_items(requirement: Requirement, items: list[dict[str, Any]]) -> None:
+        # Delete-then-insert must be atomic: a failed bulk_create would otherwise
+        # leave the requirement with no items at all.
         requirement.items.all().delete()
         RequirementItem.objects.bulk_create(
             [
