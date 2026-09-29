@@ -16,6 +16,7 @@ dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
     "ruff>=0.7",
+    "black>=24.10",
     "mypy>=1.13",
 ]
 
@@ -28,6 +29,15 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["ai_devops_cli*"]
+
+# ---------------------------------------------------------------------------
+# Formatting
+# ---------------------------------------------------------------------------
+# Same line length as the backend, so a reader moving between the two does not
+# have to re-learn where lines break.
+[tool.black]
+line-length = 100
+target-version = ["py311"]
 
 [tool.ruff]
 line-length = 100

@@ -73,7 +73,11 @@ def resolve_evidence(
 
     found: dict[str, set[uuid.UUID]] = {}
     for kind in {ref.kind for ref in refs} & set(_EVIDENCE_SOURCES):
-        ids = [value for ref, value in zip(refs, parsed, strict=True) if ref.kind == kind and value is not None]
+        ids = [
+            value
+            for ref, value in zip(refs, parsed, strict=True)
+            if ref.kind == kind and value is not None
+        ]
         if not ids:
             found[kind] = set()
             continue

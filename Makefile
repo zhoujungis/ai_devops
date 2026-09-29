@@ -16,7 +16,7 @@ BACKEND := backend
 CLI := cli
 
 .DEFAULT_GOAL := help
-.PHONY: help venv install check migrate makemigrations test cov lint fmt typecheck verify run worker beat up down logs clean cli-venv cli-install cli-lint cli-typecheck cli-verify
+.PHONY: help venv install check migrate makemigrations test cov lint format-check fmt typecheck verify run worker beat up down logs clean cli-venv cli-install cli-lint cli-format-check cli-typecheck cli-test cli-verify
 
 help:
 	@echo "venv          create the backend virtualenv"
@@ -27,6 +27,7 @@ help:
 	@echo "test          run the test suite"
 	@echo "cov           run tests with coverage report"
 	@echo "lint          ruff"
+	@echo "format-check  black --check (what CI gates on)"
 	@echo "fmt           black + ruff --fix"
 	@echo "typecheck     mypy"
 	@echo "verify        lint + format check + typecheck + check + tests (CI equivalent)"
@@ -38,8 +39,10 @@ help:
 	@echo "cli-venv      create the terminal client virtualenv"
 	@echo "cli-install   install the terminal client (editable, with dev extras)"
 	@echo "cli-lint      ruff on the terminal client"
+	@echo "cli-format-check black --check on the terminal client"
 	@echo "cli-typecheck mypy on the terminal client"
-	@echo "cli-verify    cli-lint + cli-typecheck"
+	@echo "cli-test      pytest on the terminal client"
+	@echo "cli-verify    cli-lint + cli-format-check + cli-typecheck + cli-test"
 
 venv:
 	python -m venv $(VENV)
@@ -66,13 +69,17 @@ cov:
 lint:
 	cd $(BACKEND) && ../$(PY) -m ruff check .
 
+format-check:
+	cd $(BACKEND) && ../$(PY) -m black --check .
+
 fmt:
 	cd $(BACKEND) && ../$(PY) -m black . && ../$(PY) -m ruff check --fix .
 
 typecheck:
 	cd $(BACKEND) && ../$(PY) -m mypy .
 
-verify: lint typecheck check test
+# Matches the CI job order, so "green locally" means "green on the runner".
+verify: lint format-check typecheck check test
 
 run:
 	cd $(BACKEND) && ../$(PY) manage.py runserver
@@ -109,7 +116,13 @@ cli-install:
 cli-lint:
 	cd $(CLI) && ../$(CLI_PY) -m ruff check .
 
-cli-typecheck:
-	cd $(CLI) && ../$(CLI_PY) -m mypy ai_devops_cli
+cli-format-check:
+	cd $(CLI) && ../$(CLI_PY) -m black --check .
 
-cli-verify: cli-lint cli-typecheck
+cli-typecheck:
+	cd $(CLI) && ../$(CLI_PY) -m mypy .
+
+cli-test:
+	cd $(CLI) && ../$(CLI_PY) -m pytest
+
+cli-verify: cli-lint cli-format-check cli-typecheck cli-test

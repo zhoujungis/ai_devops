@@ -54,14 +54,10 @@ def test_a_named_defect_is_linked_to_its_commit_module_and_requirement(
     _sync(repository, "PAY-18 fix QAC-201 retry storm")
 
     commit = Commit.objects.get(repository=repository, sha="c1")
-    assert BugCommitLink.objects.filter(
-        bug=bug, commit=commit, source=LinkSource.INFERRED
-    ).exists()
+    assert BugCommitLink.objects.filter(bug=bug, commit=commit, source=LinkSource.INFERRED).exists()
     # "This defect lives in these modules" is what the risk engine reads.
     assert BugModuleLink.objects.filter(bug=bug, module__path_prefix="src/payment").exists()
-    assert BugRequirementLink.objects.filter(
-        bug=bug, requirement__external_key="PAY-18"
-    ).exists()
+    assert BugRequirementLink.objects.filter(bug=bug, requirement__external_key="PAY-18").exists()
     assert Module.objects.filter(project=project, path_prefix="src/payment").exists()
 
 

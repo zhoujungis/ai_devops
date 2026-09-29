@@ -112,9 +112,9 @@ class ListFailingTestsTool(Tool[ListFailingTestsArgs]):
 
         # Only real failures: a skipped test is not evidence of a problem, and reporting
         # it as one would send the model chasing something that never ran.
-        failures = run.results.filter(
-            status__in=[TestResultStatus.FAILED, TestResultStatus.ERROR]
-        )[: args.limit]
+        failures = run.results.filter(status__in=[TestResultStatus.FAILED, TestResultStatus.ERROR])[
+            : args.limit
+        ]
         return ToolResult(
             data={
                 "run_id": str(run.pk),

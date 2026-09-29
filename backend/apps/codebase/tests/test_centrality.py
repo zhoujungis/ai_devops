@@ -58,7 +58,9 @@ def test_a_sync_recomputes_centrality(repository: Repository) -> None:
     from apps.integrations.tests.fakes import FakeGitProvider
 
     provider = FakeGitProvider(
-        commits=[make_remote_commit("s1", minutes_ago=5, files=[make_remote_file("src/alpha/a.py")])]
+        commits=[
+            make_remote_commit("s1", minutes_ago=5, files=[make_remote_file("src/alpha/a.py")])
+        ]
     )
 
     sync_repository(repository, provider=provider)

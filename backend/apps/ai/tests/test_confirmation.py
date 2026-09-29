@@ -484,9 +484,7 @@ def test_the_rca_agent_ranks_candidates_for_a_defect(
         }
     )
     _install(monkeypatch, project, FakeAIProvider(replies=[reply]))
-    job, _ = create_job(
-        project=project, agent_code="rca", target_type="bug", target_id=bug.key
-    )
+    job, _ = create_job(project=project, agent_code="rca", target_type="bug", target_id=bug.key)
 
     outcome = run_analysis_job(str(job.pk))
 

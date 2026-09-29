@@ -262,10 +262,6 @@ class CoverageSnapshotSerializer(serializers.ModelSerializer):
 
     def validate_commit(self, value: Any) -> Any:
         project = self.context.get("project")
-        if (
-            value is not None
-            and project is not None
-            and value.repository.project_id != project.pk
-        ):
+        if value is not None and project is not None and value.repository.project_id != project.pk:
             raise serializers.ValidationError("This commit belongs to another project.")
         return value

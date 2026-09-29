@@ -154,9 +154,7 @@ class Client:
             ) from exc
 
         if response.status_code == 401 and auth and not _retried and self.refresh_access():
-            return self._send(
-                method, path, params=params, json=json, auth=auth, _retried=True
-            )
+            return self._send(method, path, params=params, json=json, auth=auth, _retried=True)
 
         if response.status_code >= 400:
             raise self._error(response)

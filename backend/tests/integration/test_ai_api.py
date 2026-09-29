@@ -194,9 +194,7 @@ def test_a_job_trace_shows_the_model_runs_and_tool_calls_behind_it(monkeypatch: 
         format="json",
     ).json()["id"]
 
-    response = client.get(
-        f"/api/v1/orgs/{org.pk}/projects/{project.pk}/ai/jobs/{job_id}/trace"
-    )
+    response = client.get(f"/api/v1/orgs/{org.pk}/projects/{project.pk}/ai/jobs/{job_id}/trace")
 
     assert response.status_code == 200
     runs = response.json()

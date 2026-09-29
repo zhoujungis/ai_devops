@@ -140,9 +140,7 @@ def test_coverage_snapshots_are_appended_and_never_edited() -> None:
     assert created.status_code == 201, created.content
     assert client.get(url).json()["count"] == 1
 
-    rewritten = client.put(
-        f"{url}/{created.json()['id']}", {"line_rate": 1.0}, format="json"
-    )
+    rewritten = client.put(f"{url}/{created.json()['id']}", {"line_rate": 1.0}, format="json")
     assert rewritten.status_code == 405, "a measurement is a fact, not a record to edit"
 
 

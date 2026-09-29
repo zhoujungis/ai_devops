@@ -170,9 +170,7 @@ def test_agent_lookup_lists_what_is_registered(stub_agent: Any) -> None:
 def test_the_sweeper_fails_a_job_that_was_never_picked_up(project: Project) -> None:
     """A broker outage at enqueue time leaves a QUEUED job no worker knows about."""
     stale, _ = create_job(project=project, agent_code="stub")
-    AIAnalysisJob.objects.filter(pk=stale.pk).update(
-        created_at=timezone.now() - timedelta(hours=2)
-    )
+    AIAnalysisJob.objects.filter(pk=stale.pk).update(created_at=timezone.now() - timedelta(hours=2))
     fresh, _ = create_job(project=project, agent_code="stub")
 
     outcome = fail_stale_jobs()

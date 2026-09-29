@@ -126,9 +126,7 @@ class BaseAgent(ABC):
                     break
 
             conversation.append(
-                ChatMessage(
-                    role="assistant", content=result.content, tool_calls=result.tool_calls
-                )
+                ChatMessage(role="assistant", content=result.content, tool_calls=result.tool_calls)
             )
             for call in result.tool_calls:
                 conversation.append(
@@ -175,7 +173,9 @@ class BaseAgent(ABC):
         )
 
 
-def _with_schema_instruction(messages: list[ChatMessage], schema: type[BaseModel]) -> list[ChatMessage]:
+def _with_schema_instruction(
+    messages: list[ChatMessage], schema: type[BaseModel]
+) -> list[ChatMessage]:
     """A copy of the conversation carrying the output-schema instruction."""
     instructions = schema_instructions(schema)
     prepared = list(messages)
@@ -193,9 +193,7 @@ def _tool_output(run: Any, call: ToolCall, context: ToolContext) -> str:
     recorded, and the model is free to try something else.
     """
     try:
-        result = run_tool(
-            run=run, tool_name=call.name, arguments=call.arguments, context=context
-        )
+        result = run_tool(run=run, tool_name=call.name, arguments=call.arguments, context=context)
         payload: Any = result.data
     except ToolError as exc:
         payload = {"error": str(exc)}

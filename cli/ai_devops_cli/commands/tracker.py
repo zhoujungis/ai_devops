@@ -14,7 +14,9 @@ def _filters(**candidates: str | None) -> dict[str, Any]:
 
 
 def requirements(
-    status: str | None = typer.Option(None, "--status", help="draft|approved|in_progress|implemented|verified."),
+    status: str | None = typer.Option(
+        None, "--status", help="draft|approved|in_progress|implemented|verified."
+    ),
     priority: str | None = typer.Option(None, "--priority", help="p0|p1|p2|p3."),
     limit: int = typer.Option(50, "--limit", "-n", help="How many to list."),
 ) -> None:
@@ -64,7 +66,9 @@ def test_cases(
 
 
 def test_runs(
-    status: str | None = typer.Option(None, "--status", help="queued|running|passed|failed|aborted."),
+    status: str | None = typer.Option(
+        None, "--status", help="queued|running|passed|failed|aborted."
+    ),
     environment: str | None = typer.Option(None, "--environment"),
     limit: int = typer.Option(20, "--limit", "-n", help="How many to list."),
 ) -> None:
@@ -96,7 +100,9 @@ def test_runs(
 
 
 def bugs(
-    status: str | None = typer.Option(None, "--status", help="open|in_progress|resolved|closed|reopened."),
+    status: str | None = typer.Option(
+        None, "--status", help="open|in_progress|resolved|closed|reopened."
+    ),
     severity: str | None = typer.Option(None, "--severity", help="s1|s2|s3|s4."),
     limit: int = typer.Option(50, "--limit", "-n", help="How many to list."),
 ) -> None:

@@ -137,9 +137,7 @@ class CopilotApp(App[None]):
                 f"{base}/ai/recommendations", limit=100, status="pending"
             )
             findings = self._client.results(f"{base}/ai/findings", limit=100)
-            commits = self._client.results(
-                f"{base}/commits", limit=100, ordering="-committed_at"
-            )
+            commits = self._client.results(f"{base}/commits", limit=100, ordering="-committed_at")
         except ApiError as exc:
             self.call_from_thread(self._set_status, f"[red]{exc.message}[/red]")
             return
@@ -240,9 +238,7 @@ class CopilotApp(App[None]):
         base = context.project_base()
         try:
             if decision == "confirm":
-                self._client.post(
-                    f"{base}/ai/recommendations/{recommendation_id}/confirm", json={}
-                )
+                self._client.post(f"{base}/ai/recommendations/{recommendation_id}/confirm", json={})
                 self.call_from_thread(self._set_status, "[green]Approved.[/green]")
             else:
                 self._client.post(

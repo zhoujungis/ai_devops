@@ -148,13 +148,18 @@ def explain(sha: str = typer.Argument(..., help="Commit sha (full or short).")) 
     requirement = chain.get("requirement")
     output.kv(
         [
-            ("commit", f"{chain['commit']['short_sha']} {output.first_line(chain['commit']['message'])}"),
+            (
+                "commit",
+                f"{chain['commit']['short_sha']} {output.first_line(chain['commit']['message'])}",
+            ),
             (
                 "requirement",
-                f"{requirement['external_key']} {requirement['title']} "
-                f"(via {chain['requirement_source']})"
-                if requirement
-                else "(none resolved)",
+                (
+                    f"{requirement['external_key']} {requirement['title']} "
+                    f"(via {chain['requirement_source']})"
+                    if requirement
+                    else "(none resolved)"
+                ),
             ),
             ("releases", ", ".join(r["version"] for r in chain["releases"]) or "(none)"),
         ]

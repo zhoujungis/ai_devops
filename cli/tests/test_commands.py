@@ -152,7 +152,11 @@ def test_analyse_without_wait_returns_immediately(stub: StubClient) -> None:
 
     assert result.exit_code == 0
     assert "job-1" in result.output
-    assert ("post", f"{PROJECT}/ai/analyses", {"agent": "code_impact", "params": {}, "target_id": "abc"}) in stub.calls
+    assert (
+        "post",
+        f"{PROJECT}/ai/analyses",
+        {"agent": "code_impact", "params": {}, "target_id": "abc"},
+    ) in stub.calls
 
 
 def test_analyse_wait_reports_success(stub: StubClient) -> None:
@@ -421,6 +425,4 @@ def test_audit_lists_the_organization_trail(stub: StubClient) -> None:
     assert "Audit log" in result.output
     # The action code is long enough that rich wraps it across lines, so the request is
     # asserted on rather than a substring of the rendered table.
-    assert any(
-        call[0] == "results" and call[1] == "/orgs/org-1/audit-logs" for call in stub.calls
-    )
+    assert any(call[0] == "results" and call[1] == "/orgs/org-1/audit-logs" for call in stub.calls)

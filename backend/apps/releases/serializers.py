@@ -66,9 +66,9 @@ class ReleaseSerializer(ProjectScopedUniqueMixin, serializers.ModelSerializer):
         if project is None or not value:
             return value
         found = set(
-            Commit.objects.filter(
-                pk__in=value, repository__project=project
-            ).values_list("pk", flat=True)
+            Commit.objects.filter(pk__in=value, repository__project=project).values_list(
+                "pk", flat=True
+            )
         )
         missing = [str(pk) for pk in value if pk not in found]
         if missing:

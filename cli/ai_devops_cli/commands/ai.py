@@ -24,7 +24,9 @@ _FINDING_STATUSES = ("new", "acknowledged", "dismissed", "converted")
 
 def findings(
     severity: str | None = typer.Option(None, "--severity", help="info|low|medium|high|critical"),
-    status: str | None = typer.Option(None, "--status", help="new|acknowledged|dismissed|converted"),
+    status: str | None = typer.Option(
+        None, "--status", help="new|acknowledged|dismissed|converted"
+    ),
     agent: str | None = typer.Option(None, "--agent", help="Filter by agent code."),
     worst_first: bool = typer.Option(
         False, "--worst-first", help="Order by severity, critical first, instead of recency."
@@ -84,7 +86,10 @@ def finding(finding_id: str = typer.Argument(..., help="Finding id.")) -> None:
     output.table(
         "Evidence",
         ["KIND", "REF", "NOTE"],
-        [[item["kind"], item["ref_id"], item.get("note", "")] for item in record.get("evidence", [])],
+        [
+            [item["kind"], item["ref_id"], item.get("note", "")]
+            for item in record.get("evidence", [])
+        ],
         empty="No evidence references.",
     )
 
@@ -111,7 +116,9 @@ def triage(
 
 
 def proposals(
-    status: str = typer.Option("pending", "--status", help="pending|executed|rejected|failed|expired"),
+    status: str = typer.Option(
+        "pending", "--status", help="pending|executed|rejected|failed|expired"
+    ),
     limit: int = typer.Option(50, "--limit", "-n", help="How many proposals to list."),
 ) -> None:
     """List AI proposals and their state."""
@@ -126,10 +133,7 @@ def proposals(
     output.table(
         "Proposals",
         ["ID", "TYPE", "TITLE", "RISK", "STATUS"],
-        [
-            [row["id"], row["type"], row["title"], row["risk_level"], row["status"]]
-            for row in rows
-        ],
+        [[row["id"], row["type"], row["title"], row["risk_level"], row["status"]] for row in rows],
         empty="Nothing here.",
     )
 
@@ -176,7 +180,9 @@ def agents() -> None:
     if output.is_json():
         output.emit(rows)
         return
-    output.table("Agents", ["CODE", "DESCRIPTION"], [[row["code"], row["description"]] for row in rows])
+    output.table(
+        "Agents", ["CODE", "DESCRIPTION"], [[row["code"], row["description"]] for row in rows]
+    )
 
 
 def analyse(
@@ -214,7 +220,9 @@ def analyse(
         if output.is_json():
             output.emit(job)
             return
-        output.success(f"Queued job {job_id} (status {job['status']}). Poll with: copilot job {job_id}")
+        output.success(
+            f"Queued job {job_id} (status {job['status']}). Poll with: copilot job {job_id}"
+        )
         return
 
     deadline = time.monotonic() + timeout
@@ -283,9 +291,7 @@ def analyses(
     if status:
         params["status"] = status
 
-    rows = context.client().results(
-        f"{context.project_base()}/ai/analyses", limit=limit, **params
-    )
+    rows = context.client().results(f"{context.project_base()}/ai/analyses", limit=limit, **params)
     if output.is_json():
         output.emit(rows)
         return

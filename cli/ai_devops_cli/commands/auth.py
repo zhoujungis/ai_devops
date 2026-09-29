@@ -22,9 +22,7 @@ def login(
         password = typer.prompt("Password", hide_input=True)
 
     data = context.client().login(email, password)
-    output.success(
-        f"Signed in as {data['user']['email']} against {context.settings().base_url}"
-    )
+    output.success(f"Signed in as {data['user']['email']} against {context.settings().base_url}")
 
 
 def logout() -> None:

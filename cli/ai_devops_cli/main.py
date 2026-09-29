@@ -39,7 +39,9 @@ app = typer.Typer(no_args_is_help=True, add_completion=True, help=HELP)
 @app.callback()
 def _root(
     json_output: bool = typer.Option(False, "--json", help="Print raw JSON instead of tables."),
-    base_url: str | None = typer.Option(None, "--base-url", help="Override the stored API base URL."),
+    base_url: str | None = typer.Option(
+        None, "--base-url", help="Override the stored API base URL."
+    ),
 ) -> None:
     """Configure the shared runtime before any command runs."""
     from_env = os.environ.get("COPILOT_JSON", "").strip().lower() in {"1", "true", "yes", "on"}

@@ -124,7 +124,9 @@ def repo_add(
         body["module_depth"] = module_depth
 
     row = context.client().post(f"{context.project_base()}/repositories", json=body)
-    output.success(f"Registered {row['full_name']} ({row['id']}). Now run: copilot sync {row['id']}")
+    output.success(
+        f"Registered {row['full_name']} ({row['id']}). Now run: copilot sync {row['id']}"
+    )
 
 
 def repo_remove(repository_id: str = typer.Argument(..., help="Repository id.")) -> None:

@@ -84,9 +84,7 @@ def default_config(org: Any) -> AIProviderConfig | None:
     Fetched once and decided in Python: the previous version ran three queries
     (default, count, first) to answer a question one row read can settle.
     """
-    active = list(
-        AIProviderConfig.objects.filter(org=org).exclude(status=ProviderStatus.DISABLED)
-    )
+    active = list(AIProviderConfig.objects.filter(org=org).exclude(status=ProviderStatus.DISABLED))
     for config in active:
         if config.is_default:
             return config

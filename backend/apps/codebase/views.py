@@ -66,8 +66,7 @@ class CommitViewSet(ScopedRoleViewMixin, viewsets.ReadOnlyModelViewSet):
             Commit.objects.filter(repository__project=project)
             # `requirement` is read by the explain chain; `repository` by the
             # serializer. Both are cheap to join.
-            .select_related("repository", "requirement")
-            .prefetch_related("module_impacts__module")
+            .select_related("repository", "requirement").prefetch_related("module_impacts__module")
         )
         # Diffs are only rendered by the detail and explain views, and each file row
         # can carry up to GIT_PATCH_MAX_BYTES of patch text. The list serializer never

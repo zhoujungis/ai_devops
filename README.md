@@ -90,7 +90,7 @@
 | 数据库 | PostgreSQL + pgvector 0.8 · Redis 8（broker / cache） |
 | AI | OpenAI 兼容 Provider Adapter · Pydantic 严格结构化输出 · 版本化 Prompt · 只读 Tool 层 |
 | 客户端 | Python · Typer（命令式 CLI）· Textual（TUI）· Rich · httpx（JWT 自动刷新） |
-| 质量 | pytest（537 个后端测试）· 终端客户端测试（33，含 Textual pilot）· ruff · black · mypy（strict + django/drf 插件）· drf-spectacular（OpenAPI 零告警） |
+| 质量 | pytest（559 个后端测试）· 终端客户端测试（36，含 Textual pilot）· ruff · black · mypy（strict + django/drf 插件）· drf-spectacular（OpenAPI 零告警） |
 | 部署 | docker compose（web / worker / beat / db / redis）· GitHub Actions CI |
 
 ## 目录结构
@@ -358,14 +358,14 @@ AI 分析流程固定为三步：`POST analyses`（带 `agent` + 目标实体）
 ## 开发与测试
 
 ```bash
-make verify    # ruff + mypy + django check + pytest
+make verify    # ruff + black --check + mypy + django check + pytest（与 CI 同一套）
 make fmt       # black + ruff --fix
 make cov       # 带覆盖率跑测试
-make cli-verify  # 终端客户端：ruff + mypy
+make cli-verify  # 终端客户端：ruff + black --check + mypy + pytest
 ```
 
-- **537 个后端测试**全部不依赖外网：`FakeGitProvider`、脚本化假 AI Provider、`httpx.MockTransport`，默认 `-m 'not network'`
-- **33 个终端客户端测试**：客户端用 `httpx.MockTransport` 覆盖 401 刷新/分页/错误信封；命令层用 Typer `CliRunner`；TUI 用 Textual 的 `run_test` pilot 真跑（挂载、填表、确认/拒绝打到接口）
+- **559 个后端测试**全部不依赖外网：`FakeGitProvider`、脚本化假 AI Provider、`httpx.MockTransport`，默认 `-m 'not network'`
+- **36 个终端客户端测试**：客户端用 `httpx.MockTransport` 覆盖 401 刷新/分页/错误信封；命令层用 Typer `CliRunner`；TUI 用 Textual 的 `run_test` pilot 真跑（挂载、填表、确认/拒绝打到接口）
 - S6 验收逐条有测试锁定：未确认不建行 / 确认精确创建 + 审计 / 拒绝零写入 / 越权记 `scope_denied`
 - `tests/integration/test_github_live.py` 的 4 个用例会真实访问 `api.github.com`（匿名 GET，仓库 `octocat/Hello-World`），手动执行：
 
@@ -472,7 +472,7 @@ Computes a normalized risk score for a commit or a module, with a **per-signal c
 | Data | PostgreSQL + pgvector 0.8 · Redis 8 (broker / cache) |
 | AI | OpenAI-compatible provider adapter · strict Pydantic structured output · versioned prompts · read-only tool layer |
 | Client | Python · Typer (imperative CLI) · Textual (TUI) · Rich · httpx (auto JWT refresh) |
-| Quality | pytest (537 backend tests) · terminal-client tests (33, including Textual pilot) · ruff · black · mypy (strict + django/drf plugins) · drf-spectacular (zero-warning OpenAPI) |
+| Quality | pytest (559 backend tests) · terminal-client tests (36, including Textual pilot) · ruff · black · mypy (strict + django/drf plugins) · drf-spectacular (zero-warning OpenAPI) |
 | Deployment | docker compose (web / worker / beat / db / redis) · GitHub Actions CI |
 
 ## Repository Layout
@@ -743,14 +743,14 @@ The AI analysis flow is always three steps: `POST analyses` (with `agent` + targ
 ## Development & Testing
 
 ```bash
-make verify    # ruff + mypy + django check + pytest
+make verify    # ruff + black --check + mypy + django check + pytest (the same gates CI runs)
 make fmt       # black + ruff --fix
 make cov       # tests with coverage
-make cli-verify  # terminal client: ruff + mypy
+make cli-verify  # terminal client: ruff + black --check + mypy + pytest
 ```
 
-- **537 backend tests**, none requiring internet access: `FakeGitProvider`, scripted fake AI providers, `httpx.MockTransport`; default `-m 'not network'`
-- **33 terminal-client tests**: the client is exercised over `httpx.MockTransport` (401 refresh, pagination, error envelope), the command layer through Typer's `CliRunner`, and the TUI through Textual's `run_test` pilot (it mounts, fills its tables, and the confirm/reject keys really reach the API)
+- **559 backend tests**, none requiring internet access: `FakeGitProvider`, scripted fake AI providers, `httpx.MockTransport`; default `-m 'not network'`
+- **36 terminal-client tests**: the client is exercised over `httpx.MockTransport` (401 refresh, pagination, error envelope), the command layer through Typer's `CliRunner`, and the TUI through Textual's `run_test` pilot (it mounts, fills its tables, and the confirm/reject keys really reach the API)
 - S6 acceptance is locked by tests: no row without confirmation / exact creation + audit on confirmation / zero writes on rejection / `scope_denied` on unauthorized tool calls
 - The 4 tests in `tests/integration/test_github_live.py` hit `api.github.com` for real (anonymous GET, repo `octocat/Hello-World`); run manually:
 

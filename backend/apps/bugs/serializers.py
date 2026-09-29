@@ -181,18 +181,14 @@ class BugSerializer(ProjectScopedUniqueMixin, serializers.ModelSerializer):
     @staticmethod
     def _replace_occurrences(bug: Bug, occurrences: list[dict[str, Any]]) -> None:
         bug.occurrences.all().delete()
-        BugOccurrence.objects.bulk_create(
-            [BugOccurrence(bug=bug, **row) for row in occurrences]
-        )
+        BugOccurrence.objects.bulk_create([BugOccurrence(bug=bug, **row) for row in occurrences])
         rows = list(bug.occurrences.values_list("seen_at", "count"))
         if not rows:
             return
         bug.first_seen_at = min(seen_at for seen_at, _ in rows)
         bug.last_seen_at = max(seen_at for seen_at, _ in rows)
         bug.occurrence_count = sum(count for _, count in rows)
-        bug.save(
-            update_fields=["first_seen_at", "last_seen_at", "occurrence_count", "updated_at"]
-        )
+        bug.save(update_fields=["first_seen_at", "last_seen_at", "occurrence_count", "updated_at"])
 
     @staticmethod
     def _replace_relations(bug: Bug, relations: list[dict[str, Any]]) -> None:
