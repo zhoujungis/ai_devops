@@ -23,14 +23,14 @@ from ai_devops_cli.errors import CliError
 HELP = (
     "Terminal client for the AI DevOps / QA Copilot API.\n\n"
     "Typical first run:\n"
-    "  copilot login\n"
-    "  copilot projects\n"
-    "  copilot use <project-slug>\n"
-    "  copilot commits\n"
-    "  copilot explain <sha>\n"
-    "  copilot findings\n\n"
+    "  aidevops login\n"
+    "  aidevops projects\n"
+    "  aidevops use <project-slug>\n"
+    "  aidevops commits\n"
+    "  aidevops explain <sha>\n"
+    "  aidevops findings\n\n"
     "'--json' is a global option: put it before the command, as in "
-    "'copilot --json findings' (or set COPILOT_JSON=1)."
+    "'aidevops --json findings' (or set AIDEVOPS_JSON=1)."
 )
 
 app = typer.Typer(no_args_is_help=True, add_completion=True, help=HELP)
@@ -44,7 +44,7 @@ def _root(
     ),
 ) -> None:
     """Configure the shared runtime before any command runs."""
-    from_env = os.environ.get("COPILOT_JSON", "").strip().lower() in {"1", "true", "yes", "on"}
+    from_env = os.environ.get("AIDEVOPS_JSON", "").strip().lower() in {"1", "true", "yes", "on"}
     output.set_json(json_output or from_env)
     context.configure(base_url=base_url)
 

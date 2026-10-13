@@ -3,7 +3,7 @@
 One JSON file per machine. It holds refresh and access tokens, so it is written
 with owner-only permissions where the platform supports it. Everything can be
 overridden by environment variables, which is what makes the tool usable in CI:
-``COPILOT_CONFIG`` (file location), ``COPILOT_BASE_URL`` and ``COPILOT_TOKEN``.
+``AIDEVOPS_CONFIG`` (file location), ``AIDEVOPS_BASE_URL`` and ``AIDEVOPS_TOKEN``.
 """
 
 from __future__ import annotations
@@ -16,15 +16,17 @@ from pathlib import Path
 
 import platformdirs
 
-APP_NAME = "ai-devops-copilot"
+APP_NAME = "aidevops"
 DEFAULT_BASE_URL = "http://127.0.0.1:8000/api/v1"
 
 
 def config_path() -> Path:
-    override = os.environ.get("COPILOT_CONFIG")
+    override = os.environ.get("AIDEVOPS_CONFIG")
     if override:
         return Path(override)
-    return Path(platformdirs.user_config_dir(APP_NAME)) / "config.json"
+    # appauthor=False: on Windows platformdirs otherwise repeats the app name as
+    # the "author" directory, giving a pointless ...\aidevops\aidevops\ nesting.
+    return Path(platformdirs.user_config_dir(APP_NAME, appauthor=False)) / "config.json"
 
 
 @dataclass
@@ -73,10 +75,10 @@ def load() -> Settings:
                 setattr(settings, key, value)
 
     # Environment wins over the file, so CI can point the CLI without writing one.
-    if os.environ.get("COPILOT_BASE_URL"):
-        settings.base_url = os.environ["COPILOT_BASE_URL"]
-    if os.environ.get("COPILOT_TOKEN"):
-        settings.access = os.environ["COPILOT_TOKEN"]
+    if os.environ.get("AIDEVOPS_BASE_URL"):
+        settings.base_url = os.environ["AIDEVOPS_BASE_URL"]
+    if os.environ.get("AIDEVOPS_TOKEN"):
+        settings.access = os.environ["AIDEVOPS_TOKEN"]
     return settings
 
 

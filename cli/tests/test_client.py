@@ -18,7 +18,7 @@ from ai_devops_cli.config import Settings
 
 @pytest.fixture
 def settings(config_file: Path) -> Settings:
-    # `config_file` points COPILOT_CONFIG at a temp file, so `save()` never touches
+    # `config_file` points AIDEVOPS_CONFIG at a temp file, so `save()` never touches
     # the developer's real config.
     return Settings(base_url="http://api.test/api/v1")
 

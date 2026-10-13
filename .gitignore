@@ -22,6 +22,9 @@ coverage.xml
 media/
 staticfiles/
 db.sqlite3
+# Celery beat keeps its schedule in a shelve file next to wherever it is started;
+# running it from backend/ drops it into the tree unless --schedule is given.
+celerybeat-schedule*
 
 # ---- Env / secrets ----
 .env

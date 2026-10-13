@@ -43,7 +43,7 @@ def client() -> Client:
 def require_login() -> Settings:
     current = settings()
     if not current.logged_in:
-        raise CliError("Not signed in. Run: copilot login")
+        raise CliError("Not signed in. Run: aidevops login")
     return current
 
 
@@ -52,7 +52,7 @@ def org_base() -> str:
     current = require_login()
     if not current.org_id:
         raise CliError(
-            "No organization selected. Run 'copilot projects', then 'copilot use <slug>'."
+            "No organization selected. Run 'aidevops projects', then 'aidevops use <slug>'."
         )
     return f"/orgs/{current.org_id}"
 
@@ -62,8 +62,8 @@ def project_base() -> str:
     current = require_login()
     if not current.has_project:
         raise CliError(
-            "No project selected. Run 'copilot projects' to list them, "
-            "then 'copilot use <slug>'."
+            "No project selected. Run 'aidevops projects' to list them, "
+            "then 'aidevops use <slug>'."
         )
     return f"/orgs/{current.org_id}/projects/{current.project_id}"
 

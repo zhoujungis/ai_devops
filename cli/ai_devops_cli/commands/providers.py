@@ -38,7 +38,7 @@ def list_providers() -> None:
             ]
             for row in rows
         ],
-        empty="No providers. Add one with 'copilot provider-add'.",
+        empty="No providers. Add one with 'aidevops provider-add'.",
     )
 
 
@@ -88,7 +88,7 @@ def add_provider(
 
 
 def remove_provider(
-    provider_id: str = typer.Argument(..., help="Provider id (see 'copilot providers')."),
+    provider_id: str = typer.Argument(..., help="Provider id (see 'aidevops providers')."),
 ) -> None:
     """Delete a model endpoint."""
     context.client().delete(f"{context.org_base()}/ai-providers/{provider_id}")
@@ -96,7 +96,7 @@ def remove_provider(
 
 
 def verify_provider(
-    provider_id: str = typer.Argument(..., help="Provider id (see 'copilot providers')."),
+    provider_id: str = typer.Argument(..., help="Provider id (see 'aidevops providers')."),
 ) -> None:
     """Check the stored key against the endpoint, before an analysis finds it dead."""
     result = context.client().post(f"{context.org_base()}/ai-providers/{provider_id}/verify")

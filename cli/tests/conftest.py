@@ -1,7 +1,7 @@
 """Shared fixtures for the CLI tests.
 
 Two seams make the whole command layer testable without a server: the config file
-(redirected to a temp path through ``COPILOT_CONFIG``) and the HTTP client (replaced
+(redirected to a temp path through ``AIDEVOPS_CONFIG``) and the HTTP client (replaced
 with a recording stub). Everything above them — argument parsing, scope resolution,
 rendering, error handling — is exercised for real.
 """
@@ -85,7 +85,7 @@ def config_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         ),
         encoding="utf-8",
     )
-    monkeypatch.setenv("COPILOT_CONFIG", str(path))
+    monkeypatch.setenv("AIDEVOPS_CONFIG", str(path))
     # Drop settings/client cached by a previous test.
     context.configure()
     return path

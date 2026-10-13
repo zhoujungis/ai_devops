@@ -1,5 +1,5 @@
 [project]
-name = "ai-devops-copilot-cli"
+name = "aidevops"
 version = "0.1.0"
 description = "Terminal client (CLI + TUI) for the AI DevOps / QA Copilot API"
 requires-python = ">=3.11"
@@ -21,7 +21,7 @@ dev = [
 ]
 
 [project.scripts]
-copilot = "ai_devops_cli.main:app"
+aidevops = "ai_devops_cli.main:app"
 
 [build-system]
 requires = ["setuptools>=75"]

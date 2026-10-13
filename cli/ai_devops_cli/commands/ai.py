@@ -63,7 +63,7 @@ def findings(
             ]
             for finding in rows
         ],
-        empty="No findings yet. Run an analysis, for example: copilot analyse -a code_impact --target-id <sha>.",
+        empty="No findings yet. Run an analysis, for example: aidevops analyse -a code_impact --target-id <sha>.",
     )
 
 
@@ -95,7 +95,7 @@ def finding(finding_id: str = typer.Argument(..., help="Finding id.")) -> None:
 
 
 def triage(
-    finding_id: str = typer.Argument(..., help="Finding id (see 'copilot findings')."),
+    finding_id: str = typer.Argument(..., help="Finding id (see 'aidevops findings')."),
     status: str = typer.Argument(..., help="new|acknowledged|dismissed|converted."),
 ) -> None:
     """Record what you decided to do about an AI finding.
@@ -139,7 +139,7 @@ def proposals(
 
 
 def approve(
-    recommendation_id: str = typer.Argument(..., help="Proposal id (see 'copilot proposals')."),
+    recommendation_id: str = typer.Argument(..., help="Proposal id (see 'aidevops proposals')."),
 ) -> None:
     """Confirm a proposal: a registered executor runs it and the audit log records it."""
     result = context.client().post(
@@ -186,7 +186,7 @@ def agents() -> None:
 
 
 def analyse(
-    agent: str = typer.Option(..., "--agent", "-a", help="Agent code (see 'copilot agents')."),
+    agent: str = typer.Option(..., "--agent", "-a", help="Agent code (see 'aidevops agents')."),
     target_type: str = typer.Option(
         "", "--target-type", help="Target kind, e.g. commit / requirement / module / bug."
     ),
@@ -221,7 +221,7 @@ def analyse(
             output.emit(job)
             return
         output.success(
-            f"Queued job {job_id} (status {job['status']}). Poll with: copilot job {job_id}"
+            f"Queued job {job_id} (status {job['status']}). Poll with: aidevops job {job_id}"
         )
         return
 
@@ -308,11 +308,11 @@ def analyses(
             ]
             for job in rows
         ],
-        empty="No analyses yet. Run one with 'copilot analyse'.",
+        empty="No analyses yet. Run one with 'aidevops analyse'.",
     )
 
 
-def trace(job_id: str = typer.Argument(..., help="Job id (see 'copilot analyses').")) -> None:
+def trace(job_id: str = typer.Argument(..., help="Job id (see 'aidevops analyses').")) -> None:
     """Show what an analysis actually did: every model run and tool call.
 
     The job endpoint reports the outcome; this reports how it was reached — prompt

@@ -36,7 +36,7 @@ def connections() -> None:
             ]
             for row in rows
         ],
-        empty="No connections. Add one with 'copilot connection-add'.",
+        empty="No connections. Add one with 'aidevops connection-add'.",
     )
 
 
@@ -106,7 +106,7 @@ def repos() -> None:
             ]
             for row in rows
         ],
-        empty="No repositories. Add one with 'copilot repo-add'.",
+        empty="No repositories. Add one with 'aidevops repo-add'.",
     )
 
 
@@ -125,7 +125,7 @@ def repo_add(
 
     row = context.client().post(f"{context.project_base()}/repositories", json=body)
     output.success(
-        f"Registered {row['full_name']} ({row['id']}). Now run: copilot sync {row['id']}"
+        f"Registered {row['full_name']} ({row['id']}). Now run: aidevops sync {row['id']}"
     )
 
 

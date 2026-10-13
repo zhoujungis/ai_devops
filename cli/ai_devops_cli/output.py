@@ -2,7 +2,7 @@
 
 Every command produces rows and hands them here. With the global ``--json`` flag the
 raw payload is printed instead, which is what makes the CLI scriptable: a shell can
-pipe ``copilot --json findings`` into ``jq`` without the table code getting in the way.
+pipe ``aidevops --json findings`` into ``jq`` without the table code getting in the way.
 """
 
 from __future__ import annotations

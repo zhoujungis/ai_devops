@@ -79,7 +79,7 @@ class ConfirmApprove(ModalScreen[bool]):
         self.dismiss(False)
 
 
-class CopilotApp(App[None]):
+class AidevopsApp(App[None]):
     """A small, keyboard-driven view of the project's state."""
 
     CSS = _CSS
@@ -255,8 +255,8 @@ def run() -> None:
     """Validate the session, then hand the terminal to the app."""
     settings = context.settings()
     if not settings.logged_in:
-        raise CliError("Not signed in. Run: copilot login")
+        raise CliError("Not signed in. Run: aidevops login")
     if not settings.has_project:
-        raise CliError("No project selected. Run 'copilot projects', then 'copilot use <slug>'.")
+        raise CliError("No project selected. Run 'aidevops projects', then 'aidevops use <slug>'.")
 
-    CopilotApp(context.client(), subtitle=context.project_label()).run()
+    AidevopsApp(context.client(), subtitle=context.project_label()).run()

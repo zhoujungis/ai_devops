@@ -46,7 +46,7 @@
 
 ### 3. AI 分析（Provider 可插拔）
 
-- **Provider Adapter**：OpenAI 兼容协议 + DeepSeek / Qwen / Ollama 预设；凭据组织级管理，Fernet 加密落库；可用 `copilot provider-add` 直接在终端配置
+- **Provider Adapter**：OpenAI 兼容协议 + DeepSeek / Qwen / Ollama 预设；凭据组织级管理，Fernet 加密落库；可用 `aidevops provider-add` 直接在终端配置
 - **内置 Agent**：
   - **Code Impact** —— 一次提交影响什么，复用关联引擎
   - **Test Generation** —— 11 类场景覆盖矩阵（正常 / 边界 / 异常 / 并发等），强制逐类给结论
@@ -56,7 +56,7 @@
 - **证据校验**：AI 引用必须能解析到本项目真实数据，否则丢弃并记录原因
 - **事实 / 假设 / 证据强制分离**的 schema 约束（`StrictModel` 拒绝多余字段）
 - **版本化 Prompt 注册表**：frontmatter 绑定输出 schema，禁止硬编码
-- **全链路追踪**：`AIAnalysisRun` / `AIToolCall` 记录 prompt 版本、tokens、延迟、digest；成本记账（cached token 单独计价，未定价记 `NULL` 而非 0，参考价在 Django admin 的 `AIModelPricing` 里维护）。可用 `copilot trace <job_id>`（或 `GET .../ai/jobs/{id}/trace`）把一次分析的每次模型调用与工具调用翻出来
+- **全链路追踪**：`AIAnalysisRun` / `AIToolCall` 记录 prompt 版本、tokens、延迟、digest；成本记账（cached token 单独计价，未定价记 `NULL` 而非 0，参考价在 Django admin 的 `AIModelPricing` 里维护）。可用 `aidevops trace <job_id>`（或 `GET .../ai/jobs/{id}/trace`）把一次分析的每次模型调用与工具调用翻出来
 - **异步作业**：`POST` 返回 `202 + job_id`，客户端轮询；幂等键防重复提交；永久/瞬时失败区分处理
 - **两段式工具暴露**：模型 function-calling 列表只有 13 个只读工具，全部强制按 project 作用域过滤；写操作不进模型。工具循环上限由 `AI_ANALYSIS_MAX_TOOL_ITERATIONS` 约束，超限就让模型作答而不是把作业判失败
 
@@ -67,14 +67,14 @@
 - 未确认 = 零写入；越权工具调用记 `scope_denied` 留痕而非静默
 - 重复分析更新已有 finding（dedupe），不无限堆积
 - AI 发现的处置状态（`acknowledged` / `dismissed` / `converted`）是它唯一可由人改动的字段，改动同样进审计
-- 审计流水有只读 API（`/orgs/{org_pk}/audit-logs`，仅 admin）与 `copilot audit`，不必进数据库 shell 查「这是谁确认的」
+- 审计流水有只读 API（`/orgs/{org_pk}/audit-logs`，仅 admin）与 `aidevops audit`，不必进数据库 shell 查「这是谁确认的」
 
 ## 架构与技术栈
 
 ```
 ┌────────────┐   REST/JSON + JWT   ┌──────────────────────────────┐
 │  Terminal  │ ──────────────────► │  Backend (Django + DRF)      │
-│ copilot    │                     │  ├─ 10 个领域 app             │
+│ aidevops    │                     │  ├─ 10 个领域 app             │
 │ CLI + TUI  │                     │  ├─ CorrelationService 关联引擎│
 └────────────┘                     │  ├─ 风险引擎 + AI Agent 管线   │
                                    │  └─ Celery 异步作业           │
@@ -128,7 +128,7 @@ backend/
   tests/integration/       test_s3_api / test_ai_api / test_correlation_chain /
                            test_github_live
 cli/
-  pyproject.toml            依赖 + ruff/mypy 配置；console script 名 `copilot`
+  pyproject.toml            依赖 + ruff/mypy 配置；console script 名 `aidevops`
   ai_devops_cli/
     config.py               配置与 token（platformdirs，0600）
     client.py               httpx 客户端 + JWT 自动刷新 + 错误信封解包 + 分页
@@ -160,23 +160,23 @@ docker compose exec web python manage.py createsuperuser   # 可选
 - Swagger：`http://127.0.0.1:8000/api/docs/`
 - 探针：`/healthz`（存活，不碰依赖）、`/readyz`（就绪，检查 PostgreSQL + pgvector + Redis）
 
-终端客户端 `copilot`（CLI + TUI）：
+终端客户端 `aidevops`（CLI + TUI）：
 
 ```bash
 cd cli
 python -m venv .venv
 .venv/Scripts/pip install -e ".[dev]"        # Windows；Linux/macOS 用 .venv/bin/pip
-.venv/Scripts/copilot login                  # 交互输入邮箱和密码
-.venv/Scripts/copilot projects               # 列出项目
-.venv/Scripts/copilot use qa-copilot-platform
-.venv/Scripts/copilot findings               # AI 发现
-.venv/Scripts/copilot explain <sha>          # 一次提交的完整关联链
-.venv/Scripts/copilot risk <sha>             # 逐信号风险分解
-.venv/Scripts/copilot tui                    # 全屏交互式仪表盘
+.venv/Scripts/aidevops login                  # 交互输入邮箱和密码
+.venv/Scripts/aidevops projects               # 列出项目
+.venv/Scripts/aidevops use qa-copilot-platform
+.venv/Scripts/aidevops findings               # AI 发现
+.venv/Scripts/aidevops explain <sha>          # 一次提交的完整关联链
+.venv/Scripts/aidevops risk <sha>             # 逐信号风险分解
+.venv/Scripts/aidevops tui                    # 全屏交互式仪表盘
 ```
 
-`--json` 是全局选项，放在子命令之前：`copilot --json findings`（或设 `COPILOT_JSON=1`）。
-配置与 token 存在用户配置目录下的 `ai-devops-copilot/config.json`（权限 0600）。
+`--json` 是全局选项，放在子命令之前：`aidevops --json findings`（或设 `AIDEVOPS_JSON=1`）。
+配置与 token 存在用户配置目录下的 `aidevops/config.json`（权限 0600）。
 
 ### 方式二：本地开发
 
@@ -197,15 +197,15 @@ Celery 队列路由：`ai.tasks.* → ai`、`integrations.tasks.* → sync`，�
 
 ## 终端客户端
 
-`copilot` 是唯一的客户端：命令式 CLI 用于脚本与管道，`copilot tui` 是全屏仪表盘。
+`aidevops` 是唯一的客户端：命令式 CLI 用于脚本与管道，`aidevops tui` 是全屏仪表盘。
 
 ### 常用流程
 
 ```bash
-copilot login                       # 交互输入邮箱/密码，token 存本地
-copilot projects                    # 列出所有组织下的项目（* 标出当前项目）
-copilot use qa-copilot-platform     # 选中项目，后续命令默认作用于它
-copilot status                      # 当前后端 / 账号 / 项目
+aidevops login                       # 交互输入邮箱/密码，token 存本地
+aidevops projects                    # 列出所有组织下的项目（* 标出当前项目）
+aidevops use qa-copilot-platform     # 选中项目，后续命令默认作用于它
+aidevops status                      # 当前后端 / 账号 / 项目
 ```
 
 ### 命令一览
@@ -230,10 +230,10 @@ copilot status                      # 当前后端 / 账号 / 项目
 
 ### 约定
 
-- `--json` 是**全局**选项，放在子命令之前：`copilot --json findings`（也可用 `COPILOT_JSON=1`），方便直接管道给 `jq`。
-- 已开启 shell 补全：`copilot --install-completion`（bash / zsh / fish / PowerShell）。
-- 配置与 token 存在用户配置目录（Windows `%LOCALAPPDATA%`、Linux `~/.config`、macOS `~/Library/Application Support`）下的 `ai-devops-copilot/config.json`，写入权限 0600。
-- 环境变量：`COPILOT_CONFIG`（换配置路径）、`COPILOT_BASE_URL`（指向远程后端）、`COPILOT_TOKEN`（CI 里免登录）。
+- `--json` 是**全局**选项，放在子命令之前：`aidevops --json findings`（也可用 `AIDEVOPS_JSON=1`），方便直接管道给 `jq`。
+- 已开启 shell 补全：`aidevops --install-completion`（bash / zsh / fish / PowerShell）。
+- 配置与 token 存在用户配置目录（Windows `%LOCALAPPDATA%`、Linux `~/.config`、macOS `~/Library/Application Support`）下的 `aidevops/config.json`，写入权限 0600。
+- 环境变量：`AIDEVOPS_CONFIG`（换配置路径）、`AIDEVOPS_BASE_URL`（指向远程后端）、`AIDEVOPS_TOKEN`（CI 里免登录）。
 - 失败统一为「一行文案 + 退出码 1」，并附带响应的 `code` / `status` / `request_id`，便于和后端日志对齐。
 - TUI 快捷键：`r` 刷新、`a` 确认、`x` 拒绝、`q` 退出。
 
@@ -428,7 +428,7 @@ Computes a normalized risk score for a commit or a module, with a **per-signal c
 
 ### 3. AI Analysis (Pluggable Providers)
 
-- **Provider adapter**: OpenAI-compatible protocol with DeepSeek / Qwen / Ollama presets; credentials managed per organization, encrypted at rest with Fernet, and configurable from the terminal with `copilot provider-add`
+- **Provider adapter**: OpenAI-compatible protocol with DeepSeek / Qwen / Ollama presets; credentials managed per organization, encrypted at rest with Fernet, and configurable from the terminal with `aidevops provider-add`
 - **Built-in agents**:
   - **Code Impact** — what a commit affects, reusing the correlation engine
   - **Test Generation** — an 11-category scenario coverage matrix (happy path, boundary, error, concurrency, …), forced to conclude on every category
@@ -438,7 +438,7 @@ Computes a normalized risk score for a commit or a module, with a **per-signal c
 - **Evidence validation**: every AI citation must resolve to real data in this project, otherwise it is dropped and the reason recorded
 - **Fact / hypothesis / evidence separation** enforced by strict schemas (`StrictModel` rejects extra fields)
 - **Versioned prompt registry**: frontmatter binds each prompt to its output schema — no hardcoded prompts
-- **Full tracing**: `AIAnalysisRun` / `AIToolCall` record prompt version, tokens, latency, digest; cost accounting prices cached tokens separately and stores `NULL` (not 0) for unpriced models — reference prices live in `AIModelPricing` in the Django admin. `copilot trace <job_id>` (or `GET .../ai/jobs/{id}/trace`) lays out every model run and tool call behind one analysis
+- **Full tracing**: `AIAnalysisRun` / `AIToolCall` record prompt version, tokens, latency, digest; cost accounting prices cached tokens separately and stores `NULL` (not 0) for unpriced models — reference prices live in `AIModelPricing` in the Django admin. `aidevops trace <job_id>` (or `GET .../ai/jobs/{id}/trace`) lays out every model run and tool call behind one analysis
 - **Async jobs**: `POST` returns `202 + job_id`, clients poll; idempotency keys prevent duplicates; permanent vs transient failures distinguished
 - **Two-stage tool exposure**: the model's function-calling list contains only 13 read-only tools, all forcibly project-scoped; write tools are never exposed to the model. The loop is bounded by `AI_ANALYSIS_MAX_TOOL_ITERATIONS`, and exceeding it asks the model to answer rather than failing the job
 
@@ -449,14 +449,14 @@ Computes a normalized risk score for a commit or a module, with a **per-signal c
 - No confirmation = zero writes; unauthorized tool calls are logged as `scope_denied`, never silenced
 - Repeated analyses update existing findings (dedupe) instead of piling up
 - A finding's triage status (`acknowledged` / `dismissed` / `converted`) is the only field a human may change about it, and the change is audited like any other
-- The audit trail has a read-only API (`/orgs/{org_pk}/audit-logs`, admin only) and a `copilot audit` command, so "who confirmed this" needs no database shell
+- The audit trail has a read-only API (`/orgs/{org_pk}/audit-logs`, admin only) and a `aidevops audit` command, so "who confirmed this" needs no database shell
 
 ## Architecture & Stack
 
 ```
 ┌────────────┐   REST/JSON + JWT   ┌──────────────────────────────┐
 │  Terminal  │ ──────────────────► │  Backend (Django + DRF)      │
-│ copilot    │                     │  ├─ 10 domain apps           │
+│ aidevops    │                     │  ├─ 10 domain apps           │
 │ CLI + TUI  │                     │  ├─ CorrelationService engine│
 └────────────┘                     │  ├─ Risk engine + AI agents  │
                                    │  └─ Celery async jobs        │
@@ -511,7 +511,7 @@ backend/
   tests/integration/        test_s3_api / test_ai_api / test_correlation_chain /
                             test_github_live
 cli/
-  pyproject.toml            deps + ruff/mypy config; console script `copilot`
+  pyproject.toml            deps + ruff/mypy config; console script `aidevops`
   ai_devops_cli/
     config.py               settings + tokens (platformdirs, 0600)
     client.py               httpx client + auto JWT refresh + error envelope + paging
@@ -543,24 +543,24 @@ docker compose exec web python manage.py createsuperuser   # optional
 - Swagger: `http://127.0.0.1:8000/api/docs/`
 - Probes: `/healthz` (liveness, no dependencies touched), `/readyz` (readiness — checks PostgreSQL + pgvector + Redis)
 
-Terminal client `copilot` (CLI + TUI):
+Terminal client `aidevops` (CLI + TUI):
 
 ```bash
 cd cli
 python -m venv .venv
 .venv/bin/pip install -e ".[dev]"            # Windows: .venv\Scripts\pip
-.venv/bin/copilot login                      # prompts for email + password
-.venv/bin/copilot projects                   # list projects
-.venv/bin/copilot use qa-copilot-platform
-.venv/bin/copilot findings                   # AI findings
-.venv/bin/copilot explain <sha>              # full correlation chain for a commit
-.venv/bin/copilot risk <sha>                 # per-signal risk breakdown
-.venv/bin/copilot tui                        # full-screen dashboard
+.venv/bin/aidevops login                      # prompts for email + password
+.venv/bin/aidevops projects                   # list projects
+.venv/bin/aidevops use qa-copilot-platform
+.venv/bin/aidevops findings                   # AI findings
+.venv/bin/aidevops explain <sha>              # full correlation chain for a commit
+.venv/bin/aidevops risk <sha>                 # per-signal risk breakdown
+.venv/bin/aidevops tui                        # full-screen dashboard
 ```
 
-`--json` is a global option placed before the subcommand: `copilot --json findings`
-(or set `COPILOT_JSON=1`). Settings and tokens live in the user config directory
-under `ai-devops-copilot/config.json` (mode 0600).
+`--json` is a global option placed before the subcommand: `aidevops --json findings`
+(or set `AIDEVOPS_JSON=1`). Settings and tokens live in the user config directory
+under `aidevops/config.json` (mode 0600).
 
 ### Option 2: Local development
 
@@ -581,16 +581,16 @@ Celery queue routing: `ai.tasks.* → ai`, `integrations.tasks.* → sync`, ever
 
 ## Terminal Client
 
-`copilot` is the only client: an imperative CLI for scripting and pipes, plus a
-full-screen dashboard via `copilot tui`.
+`aidevops` is the only client: an imperative CLI for scripting and pipes, plus a
+full-screen dashboard via `aidevops tui`.
 
 ### Typical flow
 
 ```bash
-copilot login                       # prompts for email + password; stores the token
-copilot projects                    # every project across your orgs (* marks the current one)
-copilot use qa-copilot-platform     # select it; later commands act on it by default
-copilot status                      # backend / account / project in effect
+aidevops login                       # prompts for email + password; stores the token
+aidevops projects                    # every project across your orgs (* marks the current one)
+aidevops use qa-copilot-platform     # select it; later commands act on it by default
+aidevops status                      # backend / account / project in effect
 ```
 
 ### Command reference
@@ -615,10 +615,10 @@ copilot status                      # backend / account / project in effect
 
 ### Conventions
 
-- `--json` is a **global** option placed before the subcommand: `copilot --json findings` (or `COPILOT_JSON=1`) — that is what makes piping into `jq` work.
-- Shell completion is enabled: `copilot --install-completion` (bash / zsh / fish / PowerShell).
-- Settings and tokens live in the user config directory (Windows `%LOCALAPPDATA%`, Linux `~/.config`, macOS `~/Library/Application Support`) under `ai-devops-copilot/config.json`, written with mode 0600.
-- Environment: `COPILOT_CONFIG` (alternate config path), `COPILOT_BASE_URL` (point at a remote backend), `COPILOT_TOKEN` (skip login in CI).
+- `--json` is a **global** option placed before the subcommand: `aidevops --json findings` (or `AIDEVOPS_JSON=1`) — that is what makes piping into `jq` work.
+- Shell completion is enabled: `aidevops --install-completion` (bash / zsh / fish / PowerShell).
+- Settings and tokens live in the user config directory (Windows `%LOCALAPPDATA%`, Linux `~/.config`, macOS `~/Library/Application Support`) under `aidevops/config.json`, written with mode 0600.
+- Environment: `AIDEVOPS_CONFIG` (alternate config path), `AIDEVOPS_BASE_URL` (point at a remote backend), `AIDEVOPS_TOKEN` (skip login in CI).
 - Failures are one line plus exit code 1, carrying the response's `code` / `status` / `request_id` so a failure lines up with the server log.
 - TUI keys: `r` refresh, `a` approve, `x` reject, `q` quit.
 

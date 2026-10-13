@@ -74,7 +74,7 @@ def use(slug: str = typer.Argument(..., help="Project slug, name, or id.")) -> N
             break
 
     if found is None:
-        raise CliError(f"No project matching {slug!r}. Run 'copilot projects'.")
+        raise CliError(f"No project matching {slug!r}. Run 'aidevops projects'.")
 
     org, project = found
     current = context.settings()

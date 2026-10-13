@@ -11,15 +11,15 @@ from typing import cast
 from textual.widgets import DataTable
 
 from ai_devops_cli.client import Client
-from ai_devops_cli.tui.app import CopilotApp
+from ai_devops_cli.tui.app import AidevopsApp
 from tests.conftest import StubClient
 
 PROJECT = "/orgs/org-1/projects/proj-1"
 
 
-def _app(stub: StubClient) -> CopilotApp:
+def _app(stub: StubClient) -> AidevopsApp:
     """``StubClient`` duck-types the client, so the cast is the test's claim about it."""
-    return CopilotApp(cast(Client, stub))
+    return AidevopsApp(cast(Client, stub))
 
 
 def _seed(stub: StubClient) -> StubClient:

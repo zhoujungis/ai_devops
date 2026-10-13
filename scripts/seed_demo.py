@@ -1,9 +1,9 @@
-"""Seed a demo dataset for the QA Copilot UI.
+"""Seed a demo dataset for the QA Copilot client.
 
 The product's read APIs are deliberately read-only (findings and recommendations
-can only be produced by an agent run), so the interesting screens have nothing
-to show until real data has been synced. This script writes a plausible slice
-straight through the ORM: git connection -> repository -> modules -> commits ->
+can only be produced by an agent run), so the CLI has nothing to show until real
+data has been synced. This script writes a plausible slice straight through the
+ORM: git connection -> repository -> modules -> commits ->
 risks/tests/bugs/releases -> AI findings and recommendations.
 
 Idempotent: every row is upserted on its natural key, so re-running is safe.
