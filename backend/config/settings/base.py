@@ -211,13 +211,13 @@ REST_FRAMEWORK = {
     ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     # ScopedRateThrottle only throttles views that declare a `throttle_scope`, so the
-    # unauthenticated entry points (login/register/refresh and the webhook) opt in
-    # without rate-limiting ordinary authenticated reads. Without this, login is an
-    # unthrottled password oracle and the webhook an unauthenticated write path.
+    # unauthenticated entry points (the GitHub login exchange and the webhook) opt in
+    # without rate-limiting ordinary authenticated reads.
     "DEFAULT_THROTTLE_CLASSES": ("rest_framework.throttling.ScopedRateThrottle",),
     "DEFAULT_THROTTLE_RATES": {
-        "login": env("THROTTLE_LOGIN", "10/min"),
-        "register": env("THROTTLE_REGISTER", "5/hour"),
+        # The GitHub login exchange is unauthenticated and every call reaches out to
+        # GitHub, so it carries the rate that used to sit on the email/password login.
+        "github": env("THROTTLE_GITHUB", "10/min"),
         "refresh": env("THROTTLE_REFRESH", "30/min"),
         "webhook": env("THROTTLE_WEBHOOK", "120/min"),
     },
@@ -244,6 +244,19 @@ SIMPLE_JWT = {
     "USER_ID_CLAIM": "user_id",
     "UPDATE_LAST_LOGIN": True,
 }
+
+# ---------------------------------------------------------------------------
+# GitHub login (OAuth App, device flow)
+# ---------------------------------------------------------------------------
+# Device flow needs no client secret, so there is deliberately no secret setting:
+# the CLI runs the flow itself and the backend only verifies the resulting token.
+# The client id is public (it is served by /auth/github/config), and empty by
+# default so a misconfiguration fails loudly at the config endpoint rather than
+# silently producing broken logins.
+GITHUB_CLIENT_ID = env("GITHUB_CLIENT_ID", "")
+# Minimal scopes: read the public profile, and read the email only when the user
+# keeps it private. Repository access is a separate flow with its own token.
+GITHUB_OAUTH_SCOPES = env_list("GITHUB_OAUTH_SCOPES", ["read:user", "user:email"])
 
 SPECTACULAR_SETTINGS = {
     "TITLE": "AI DevOps / QA Copilot API",

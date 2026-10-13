@@ -31,8 +31,14 @@ project_member_detail = views.ProjectMemberViewSet.as_view(
 )
 
 urlpatterns: list[URLPattern] = [
-    path("auth/register", views.RegisterView.as_view(), name="auth-register"),
-    path("auth/login", views.LoginView.as_view(), name="auth-login"),
+    # No trailing slashes: the CLI (and the API contract) address these exactly, and
+    # APPEND_SLASH would otherwise redirect a POST.
+    path("auth/github", views.GitHubLoginView.as_view(), name="auth-github"),
+    path(
+        "auth/github/config",
+        views.GitHubConfigView.as_view(),
+        name="auth-github-config",
+    ),
     path("auth/refresh", views.RefreshView.as_view(), name="auth-refresh"),
     path("auth/logout", views.LogoutView.as_view(), name="auth-logout"),
     path("me", views.MeView.as_view(), name="me"),

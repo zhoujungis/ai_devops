@@ -24,6 +24,7 @@ HELP = (
     "Terminal client for the AI DevOps / QA Copilot API.\n\n"
     "Typical first run:\n"
     "  aidevops login\n"
+    '  aidevops org-add "My Team"\n'
     "  aidevops projects\n"
     "  aidevops use <project-slug>\n"
     "  aidevops commits\n"
@@ -95,6 +96,7 @@ _command("version", "Print the CLI version.")(auth.version)
 
 # --- scope -----------------------------------------------------------------
 _command("orgs", "List your organizations.")(scope.orgs)
+_command("org-add", "Create an organization you administer.")(scope.org_add)
 _command("projects", "List projects across your organizations.")(scope.projects)
 _command("use", "Select the current project.")(scope.use)
 _command("unuse", "Clear the current project.")(scope.unuse)

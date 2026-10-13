@@ -9,10 +9,12 @@ from __future__ import annotations
 
 from typing import Any, ClassVar, cast
 
-from django.db import transaction
+from django.conf import settings as django_settings
+from django.db import IntegrityError, transaction
 from django.db.models import Prefetch
 from drf_spectacular.utils import extend_schema
 from rest_framework import status, viewsets
+from rest_framework.exceptions import APIException, PermissionDenied
 from rest_framework.generics import RetrieveUpdateAPIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
@@ -20,6 +22,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenRefreshView
 
+from apps.accounts import github
 from apps.accounts.models import Membership, Organization, Project, ProjectMembership, User
 from apps.accounts.permissions import (
     RoleRequired,
@@ -30,57 +33,145 @@ from apps.accounts.permissions import (
 )
 from apps.accounts.roles import Role
 from apps.accounts.serializers import (
+    GitHubConfigSerializer,
+    GitHubLoginSerializer,
     LoginResponseSerializer,
-    LoginSerializer,
     LogoutSerializer,
     OrganizationMemberSerializer,
     OrganizationSerializer,
     ProjectMemberSerializer,
     ProjectSerializer,
-    RegisterSerializer,
     UserSerializer,
 )
 from apps.accounts.services import assert_admin_survives, issue_tokens
 
 
-class RegisterView(APIView):
-    """Create an account, optionally with a new organization the user administers."""
+class GitHubUnavailable(APIException):
+    """GitHub could not be reached while verifying a token.
+
+    DRF ships no 5xx client-facing exception, so this is the one place that turns an
+    upstream outage into a stable, documented error instead of a bare 500.
+    """
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = "GitHub could not be reached. Try again."
+    default_code = "github_unavailable"
+
+
+class InvalidGitHubToken(APIException):
+    """The token GitHub was handed is not valid.
+
+    Deliberately not ``AuthenticationFailed``: this view declares no authenticators,
+    so DRF would rewrite that to a 403 ("no WWW-Authenticate header"). A bare 401
+    APIException keeps the status the contract promises.
+    """
+
+    status_code = status.HTTP_401_UNAUTHORIZED
+    default_detail = "The GitHub access token is invalid."
+    default_code = "invalid_github_token"
+
+
+class GitHubLoginView(APIView):
+    """Exchange a GitHub access token for a JWT pair, creating the user on first use.
+
+    The token comes from the device flow the CLI runs directly against GitHub.
+    Identity is matched on the immutable numeric ``github_id``; a rename on GitHub
+    and a private email both leave the account intact.
+    """
 
     authentication_classes = ()
     permission_classes = (AllowAny,)
-    # Unauthenticated and writes a row per call: the natural target for signup abuse.
-    throttle_scope = "register"
+    # Unauthenticated and every call reaches out to GitHub: the natural target for
+    # abuse, and the reason the old login throttle moved here with the endpoint.
+    throttle_scope = "github"
 
-    @extend_schema(request=RegisterSerializer, responses={201: LoginResponseSerializer})
+    @extend_schema(request=GitHubLoginSerializer, responses={200: LoginResponseSerializer})
     def post(self, request: Request) -> Response:
-        serializer = RegisterSerializer(data=request.data)
+        serializer = GitHubLoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        user: User = serializer.save()
-        return Response(
-            {**issue_tokens(user), "user": UserSerializer(user).data},
-            status=status.HTTP_201_CREATED,
-        )
+        access_token = str(serializer.validated_data["access_token"])
+
+        identity = self._resolve(access_token)
+        user = self._get_or_create(identity)
+
+        if not user.is_active:
+            # The identity is verified; the account is simply not allowed in. 403,
+            # not 401, so a deactivated user is not told their token was wrong.
+            raise PermissionDenied("This account is disabled.")
+
+        return Response({**issue_tokens(user), "user": UserSerializer(user).data})
+
+    @staticmethod
+    def _resolve(access_token: str) -> github.GitHubIdentity:
+        try:
+            return github.identity_from_token(access_token)
+        except github.GitHubAuthError as exc:
+            # A token GitHub refuses is a 401 for the caller, never a 500.
+            raise InvalidGitHubToken() from exc
+        except github.GitHubError as exc:
+            raise GitHubUnavailable() from exc
+
+    @staticmethod
+    def _get_or_create(identity: github.GitHubIdentity) -> User:
+        user = User.objects.filter(github_id=identity.github_id).first()
+        if user is None:
+            try:
+                # The savepoint keeps the connection usable if the insert is rejected,
+                # so the recovery lookup below runs even under ATOMIC_REQUESTS.
+                with transaction.atomic():
+                    return User.objects.create_from_github(
+                        github_id=identity.github_id,
+                        login=identity.login,
+                        email=GitHubLoginView._unique_email(identity),
+                        avatar_url=identity.avatar_url,
+                    )
+            except IntegrityError:
+                # Two first logins raced: the other request inserted this github_id
+                # between our lookup and our insert. Adopt the row it created rather
+                # than turning a perfectly good login into a 500.
+                user = User.objects.filter(github_id=identity.github_id).first()
+                if user is None:
+                    raise
+
+        # Refresh the fields GitHub owns and that can change under us. Email is left
+        # alone: it is still the USERNAME_FIELD and is what memberships reference.
+        changed = False
+        if user.github_login != identity.login:
+            user.github_login = identity.login
+            changed = True
+        if identity.avatar_url and user.avatar_url != identity.avatar_url:
+            user.avatar_url = identity.avatar_url
+            changed = True
+        if changed:
+            user.save(update_fields=["github_login", "avatar_url"])
+        return user
+
+    @staticmethod
+    def _unique_email(identity: github.GitHubIdentity) -> str:
+        """The resolved email, unless a different account already owns it.
+
+        Without this guard a GitHub user whose address matches the existing
+        email-identified account would trip the ``unique`` constraint with a 500.
+        The synthesised noreply address is derived from the unique ``github_id``, so
+        it can never collide.
+        """
+        if User.objects.filter(email=identity.email.lower()).exists():
+            return identity.noreply_email
+        return identity.email
 
 
-class LoginView(APIView):
-    """Exchange email + password for a JWT pair."""
+class GitHubConfigView(APIView):
+    """Public device-flow parameters, so the CLI never hardcodes the OAuth app id."""
 
     authentication_classes = ()
     permission_classes = (AllowAny,)
-    # Every attempt runs a password hash, so an unthrottled login is both a
-    # credential-stuffing surface and a cheap CPU-exhaustion vector.
-    throttle_scope = "login"
 
-    @extend_schema(request=LoginSerializer, responses={200: LoginResponseSerializer})
-    def post(self, request: Request) -> Response:
-        serializer = LoginSerializer(data=request.data, context={"request": request})
-        serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
+    @extend_schema(responses={200: GitHubConfigSerializer})
+    def get(self, request: Request) -> Response:
         return Response(
             {
-                "access": data["access"],
-                "refresh": data["refresh"],
-                "user": UserSerializer(data["user"]).data,
+                "client_id": django_settings.GITHUB_CLIENT_ID,
+                "scopes": list(django_settings.GITHUB_OAUTH_SCOPES),
             }
         )
 

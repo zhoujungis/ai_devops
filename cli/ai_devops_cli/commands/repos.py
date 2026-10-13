@@ -15,6 +15,19 @@ import typer
 from ai_devops_cli import context, output
 from ai_devops_cli.errors import CliError
 
+#: Statuses a repository rests in once its run is over. ``running`` is not one of
+#: them: it only means a run is in flight.
+_SYNC_TERMINAL = {"succeeded", "failed", "idle"}
+
+#: Fields that move once a run has actually happened. Used to tell the result of
+#: the run we just queued apart from the one that was already on the row.
+_SYNC_PROGRESS_FIELDS = ("sync_status", "sync_error", "last_synced_at")
+
+
+def _moved_on(row: dict[str, Any], previous: dict[str, Any]) -> bool:
+    """True when ``row`` shows a run happened after ``previous`` was read."""
+    return any(row.get(field) != previous.get(field) for field in _SYNC_PROGRESS_FIELDS)
+
 
 def connections() -> None:
     """List git connections for the selected organization (admin only)."""
@@ -165,6 +178,13 @@ def sync(
     """Queue a synchronisation run and, with --wait, follow it to completion."""
     client = context.client()
     base = f"{context.project_base()}/repositories/{repository_id}"
+
+    # Read the row *before* queueing. Queueing does not touch it -- the task marks
+    # it RUNNING once a worker picks it up -- so until then the row still carries
+    # the previous run's outcome, and a first poll would report that stale status
+    # as the result of this run.
+    previous: dict[str, Any] = client.get(base) if wait else {}
+
     queued = client.post(f"{base}/sync")
     if output.is_json() and not wait:
         output.emit(queued)
@@ -175,12 +195,17 @@ def sync(
         return
 
     deadline = time.monotonic() + timeout
+    started = False
     with output.console.status("Syncing…") as status:
         while True:
             row = client.get(base)
             sync_status = row["sync_status"]
             status.update(f"Syncing… ({sync_status})")
-            if sync_status in {"succeeded", "failed", "idle"}:
+            if sync_status == "running":
+                # The worker has picked the task up, so every terminal status from
+                # here on is genuinely this run's result.
+                started = True
+            elif sync_status in _SYNC_TERMINAL and (started or _moved_on(row, previous)):
                 break
             if time.monotonic() >= deadline:
                 raise CliError(f"Sync did not finish within {timeout:.0f}s.")

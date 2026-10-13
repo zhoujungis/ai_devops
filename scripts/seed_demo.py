@@ -6,7 +6,9 @@ data has been synced. This script writes a plausible slice straight through the
 ORM: git connection -> repository -> modules -> commits ->
 risks/tests/bugs/releases -> AI findings and recommendations.
 
-Idempotent: every row is upserted on its natural key, so re-running is safe.
+Idempotent: every seeded row is upserted on its natural key, so re-running is safe.
+It only ever removes rows it recognises as its own earlier output, so history that a
+real sync has ingested is left alone.
 
     python manage.py shell < scripts/seed_demo.py
 
@@ -19,6 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import sys
 from datetime import timedelta
 from pathlib import Path
@@ -101,6 +104,13 @@ def hr(n: int) -> str:
     return hashlib.sha256(f"demo-commit-{n}".encode()).hexdigest()
 
 
+#: Shas written by earlier revisions of this script, which used a readable counter
+#: instead of a digest. Both shapes are essentially impossible for a real sha to
+#: hit by accident (they need 19 leading or 28 trailing zeros), so matching on them
+#: is a safe way to identify stale seed output without touching synced history.
+_LEGACY_SEED_SHA = re.compile(r"^(?:0{19}[0-9a-f]*|[0-9a-f]{12}0{28})$")
+
+
 @transaction.atomic
 def main() -> None:
     user = User.objects.filter(email=EMAIL).first()
@@ -122,25 +132,22 @@ def main() -> None:
 
 
 def prune(project: Project) -> int:
-    """Drop rows a previous version of this script keyed differently.
+    """Drop rows an earlier revision of this script keyed differently.
 
-    Re-seeding is meant to be idempotent, so anything this script owns but does
-    not recognise -- a commit written under an earlier fake-sha scheme, a test
-    run anchored to a timestamp that has since moved -- is removed rather than
-    left to accumulate.
+    Re-seeding is meant to be idempotent, so stale seed output -- a commit written
+    under an older fake-sha scheme, a test run anchored to a timestamp that has
+    since moved -- is removed rather than left to accumulate.
+
+    Seeded commits are identified by *matching the old sha shapes*, never by
+    elimination: "not one of ours" would also describe every commit a real sync has
+    ingested, and would delete a project's actual history on re-run.
     """
     removed = 0
 
-    # Only commits this script could have written are considered, and among
-    # those only the ones whose sha is not in the current scheme: an earlier
-    # revision emitted a readable counter ("000000000001000...") instead of a
-    # digest, and those rows are orphans that would otherwise linger in the
-    # commit list.
-    expected = {hr(n) for n, *_ in COMMIT_SPECS}
     orphans = [
         commit.pk
         for commit in Commit.objects.filter(repository__project=project)
-        if commit.sha not in expected
+        if _LEGACY_SEED_SHA.match(commit.sha)
     ]
     if orphans:
         removed += len(orphans)
@@ -159,15 +166,29 @@ def seed_project(project: Project, user: User) -> None:
     connection, _ = GitConnection.objects.update_or_create(
         org=project.org,
         label="internal-github",
+        # Only the non-secret settings are reset on every run. The token, the webhook
+        # secret and the verification state belong to whoever set the connection up:
+        # seeding must not silently invalidate one that a real token was added to.
         defaults={
             "provider": GitProviderKind.GITHUB,
             "auth_type": GitAuthType.PAT,
-            "base_url": "https://github.com",
+            # Blank means "use the provider default", which is https://api.github.com.
+            # The bare host (https://github.com) is the *web* site: it answers 404 for
+            # API paths, which reads as a missing repository rather than a bad setting.
+            "base_url": "",
+            "owner": user,
+        },
+        create_defaults={
+            "provider": GitProviderKind.GITHUB,
+            "auth_type": GitAuthType.PAT,
+            "base_url": "",
+            "owner": user,
+            # A credential that cannot work, and says so. The connection reads
+            # `invalid` until a real token is added, which is also why a sync against
+            # this demo data fails -- for the honest reason.
             "token": "ghp_demo_token_not_a_real_credential",
             "webhook_secret": "demo-webhook-secret",
-            "status": ConnectionStatus.ACTIVE,
-            "owner": user,
-            "last_verified_at": now - timedelta(minutes=12),
+            "status": ConnectionStatus.INVALID,
         },
     )
 

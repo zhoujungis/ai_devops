@@ -90,7 +90,7 @@
 | 数据库 | PostgreSQL + pgvector 0.8 · Redis 8（broker / cache） |
 | AI | OpenAI 兼容 Provider Adapter · Pydantic 严格结构化输出 · 版本化 Prompt · 只读 Tool 层 |
 | 客户端 | Python · Typer（命令式 CLI）· Textual（TUI）· Rich · httpx（JWT 自动刷新） |
-| 质量 | pytest（559 个后端测试）· 终端客户端测试（36，含 Textual pilot）· ruff · black · mypy（strict + django/drf 插件）· drf-spectacular（OpenAPI 零告警） |
+| 质量 | pytest（569 个后端测试，另 4 个 `network` 用例默认跳过）· 终端客户端测试（50，含 Textual pilot）· ruff · black · mypy（strict + django/drf 插件）· drf-spectacular（OpenAPI 零告警） |
 | 部署 | docker compose（web / worker / beat / db / redis）· GitHub Actions CI |
 
 ## 目录结构
@@ -166,7 +166,8 @@ docker compose exec web python manage.py createsuperuser   # 可选
 cd cli
 python -m venv .venv
 .venv/Scripts/pip install -e ".[dev]"        # Windows；Linux/macOS 用 .venv/bin/pip
-.venv/Scripts/aidevops login                  # 交互输入邮箱和密码
+.venv/Scripts/aidevops login                  # GitHub 设备码登录（浏览器里输入码授权）
+.venv/Scripts/aidevops org-add "My Team"      # 新用户先建一个组织（会自动成为 admin）
 .venv/Scripts/aidevops projects               # 列出项目
 .venv/Scripts/aidevops use qa-copilot-platform
 .venv/Scripts/aidevops findings               # AI 发现
@@ -199,10 +200,17 @@ Celery 队列路由：`ai.tasks.* → ai`、`integrations.tasks.* → sync`，�
 
 `aidevops` 是唯一的客户端：命令式 CLI 用于脚本与管道，`aidevops tui` 是全屏仪表盘。
 
+### 从 0.1.0 升级（破坏性变更）
+
+- **`/auth/login`、`/auth/register` 已删除**：0.1.0 的 CLI 用邮箱密码登录，这两个端点现在都不存在，**必须升级客户端**：`pipx upgrade aidevops`（或 `pip install -U aidevops`），否则登录直接 404。
+- **登录改为 GitHub（device flow）**：服务端 `.env` 里必须配 `GITHUB_CLIENT_ID`（对应的 OAuth App 要勾选 **Enable Device Flow**），否则 `aidevops login` 会明确报错而不是静默失败。
+- **老账号不会自动迁移**：既有的邮箱密码账号**不会被自动绑定到 GitHub**。首次用 GitHub 登录会**新建**一个账号，老账号及其组织/项目不会自动跟过来。当前本机只有一个无组织的老账号，直接重建即可。
+
 ### 常用流程
 
 ```bash
-aidevops login                       # 交互输入邮箱/密码，token 存本地
+aidevops login                       # GitHub 设备码登录，token 存本地
+aidevops org-add "My Team"           # 首次使用时建一个组织（创建者即 admin）
 aidevops projects                    # 列出所有组织下的项目（* 标出当前项目）
 aidevops use qa-copilot-platform     # 选中项目，后续命令默认作用于它
 aidevops status                      # 当前后端 / 账号 / 项目
@@ -212,8 +220,8 @@ aidevops status                      # 当前后端 / 账号 / 项目
 
 | 命令 | 作用 |
 |---|---|
-| `login` · `logout` · `me` · `status` | 会话 |
-| `orgs` · `projects` · `use` · `unuse` | 组织与项目作用域 |
+| `login` · `logout` · `me` · `status` | 会话（`login` 走 GitHub 设备码，`--no-browser` 用于远程/容器） |
+| `orgs` · `org-add` · `projects` · `use` · `unuse` | 组织与项目作用域 |
 | `commits` · `commit <sha>` | 提交列表 / 详情（含模块归属与文件） |
 | `explain <sha>` | 一条提交的完整关联链：需求、模块、回归候选、历史 Bug、发布、data gaps |
 | `risk <sha>` · `module-risk <id>` | 风险分数 + 逐信号贡献分解 |
@@ -248,6 +256,8 @@ aidevops status                      # 当前后端 / 账号 / 项目
 | `DB_*` | PostgreSQL 连接（需 pgvector 扩展：`CREATE EXTENSION vector;`） |
 | `REDIS_URL` / `CELERY_BROKER_URL` / `CELERY_RESULT_BACKEND` | Redis 与 Celery（示例里分用 db 0/1/2） |
 | `JWT_ACCESS_TOKEN_LIFETIME_MINUTES` / `JWT_REFRESH_TOKEN_LIFETIME_DAYS` | 默认 15 分钟 / 7 天 |
+| `GITHUB_CLIENT_ID` | GitHub OAuth App（**需勾选 Enable Device Flow**）的 Client ID，供 `aidevops login` 的设备码流程使用；**无需 Client Secret**（device flow 不用）。留空则登录会明确报错 |
+| `GITHUB_OAUTH_SCOPES` | 登录所需 scope，默认 `read:user,user:email` |
 | `CORS_ALLOWED_ORIGINS` | 允许的浏览器源（Swagger UI 等；终端客户端不需要），默认含 `localhost:5173` |
 | `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `DEEPSEEK_API_KEY` / `QWEN_API_KEY` / `OLLAMA_BASE_URL` | AI Provider 凭据（也可运行后在 `ai-providers` API 里按组织配置，推荐后者） |
 
@@ -266,7 +276,8 @@ aidevops status                      # 当前后端 / 账号 / 项目
 
 | 方法 | 路径 | 最低角色 |
 |---|---|---|
-| POST | `/api/v1/auth/register` · `/auth/login` · `/auth/refresh` · `/auth/logout` | — |
+| POST | `/api/v1/auth/github` · `/auth/refresh` · `/auth/logout` | — |
+| GET | `/api/v1/auth/github/config` | — |
 | GET/PATCH | `/api/v1/me` | 已登录 |
 | GET/POST | `/api/v1/orgs` | 已登录（创建组织者自动成为 admin） |
 | GET/PUT/PATCH/DELETE | `/api/v1/orgs/{org_pk}` | viewer / admin |
@@ -364,8 +375,8 @@ make cov       # 带覆盖率跑测试
 make cli-verify  # 终端客户端：ruff + black --check + mypy + pytest
 ```
 
-- **559 个后端测试**全部不依赖外网：`FakeGitProvider`、脚本化假 AI Provider、`httpx.MockTransport`，默认 `-m 'not network'`
-- **36 个终端客户端测试**：客户端用 `httpx.MockTransport` 覆盖 401 刷新/分页/错误信封；命令层用 Typer `CliRunner`；TUI 用 Textual 的 `run_test` pilot 真跑（挂载、填表、确认/拒绝打到接口）
+- **569 个后端测试**（共收集 573 个，其中 4 个 `network` 用例默认跳过）全部不依赖外网：`FakeGitProvider`、脚本化假 AI Provider、`httpx.MockTransport`，默认 `-m 'not network'`
+- **50 个终端客户端测试**：客户端用 `httpx.MockTransport` 覆盖 401 刷新/分页/错误信封（含 GitHub 设备码轮询状态机）；命令层用 Typer `CliRunner`；TUI 用 Textual 的 `run_test` pilot 真跑（挂载、填表、确认/拒绝打到接口）
 - S6 验收逐条有测试锁定：未确认不建行 / 确认精确创建 + 审计 / 拒绝零写入 / 越权记 `scope_denied`
 - `tests/integration/test_github_live.py` 的 4 个用例会真实访问 `api.github.com`（匿名 GET，仓库 `octocat/Hello-World`），手动执行：
 
@@ -472,7 +483,7 @@ Computes a normalized risk score for a commit or a module, with a **per-signal c
 | Data | PostgreSQL + pgvector 0.8 · Redis 8 (broker / cache) |
 | AI | OpenAI-compatible provider adapter · strict Pydantic structured output · versioned prompts · read-only tool layer |
 | Client | Python · Typer (imperative CLI) · Textual (TUI) · Rich · httpx (auto JWT refresh) |
-| Quality | pytest (559 backend tests) · terminal-client tests (36, including Textual pilot) · ruff · black · mypy (strict + django/drf plugins) · drf-spectacular (zero-warning OpenAPI) |
+| Quality | pytest (569 backend tests; 4 `network` cases deselected by default) · terminal-client tests (50, including Textual pilot) · ruff · black · mypy (strict + django/drf plugins) · drf-spectacular (zero-warning OpenAPI) |
 | Deployment | docker compose (web / worker / beat / db / redis) · GitHub Actions CI |
 
 ## Repository Layout
@@ -549,7 +560,8 @@ Terminal client `aidevops` (CLI + TUI):
 cd cli
 python -m venv .venv
 .venv/bin/pip install -e ".[dev]"            # Windows: .venv\Scripts\pip
-.venv/bin/aidevops login                      # prompts for email + password
+.venv/bin/aidevops login                      # GitHub device-code sign-in
+.venv/bin/aidevops org-add "My Team"          # new users start with no org
 .venv/bin/aidevops projects                   # list projects
 .venv/bin/aidevops use qa-copilot-platform
 .venv/bin/aidevops findings                   # AI findings
@@ -584,10 +596,17 @@ Celery queue routing: `ai.tasks.* → ai`, `integrations.tasks.* → sync`, ever
 `aidevops` is the only client: an imperative CLI for scripting and pipes, plus a
 full-screen dashboard via `aidevops tui`.
 
+### Upgrading from 0.1.0 (breaking change)
+
+- **`/auth/login` and `/auth/register` are gone**: the 0.1.0 CLI signed in with email + password; those endpoints no longer exist, so **the client must be upgraded** (`pipx upgrade aidevops`, or `pip install -U aidevops`) — otherwise sign-in just 404s.
+- **Sign-in is now GitHub (device flow)**: the server needs `GITHUB_CLIENT_ID` in `.env` (the OAuth App must have **Enable Device Flow** ticked), otherwise `aidevops login` fails with a clear error instead of failing silently.
+- **Existing accounts are not migrated**: a pre-existing email + password account is **not** linked to GitHub automatically. The first GitHub sign-in **creates a new account**; the old account and its organizations/projects do not carry over. On this machine there is only one org-less legacy account, so just recreate it.
+
 ### Typical flow
 
 ```bash
-aidevops login                       # prompts for email + password; stores the token
+aidevops login                       # GitHub device-code sign-in; stores the token
+aidevops org-add "My Team"           # first run: create an org (you become admin)
 aidevops projects                    # every project across your orgs (* marks the current one)
 aidevops use qa-copilot-platform     # select it; later commands act on it by default
 aidevops status                      # backend / account / project in effect
@@ -597,8 +616,8 @@ aidevops status                      # backend / account / project in effect
 
 | Command | What it does |
 |---|---|
-| `login` · `logout` · `me` · `status` | session |
-| `orgs` · `projects` · `use` · `unuse` | organization and project scope |
+| `login` · `logout` · `me` · `status` | session (`login` runs the GitHub device flow; `--no-browser` for remote/containers) |
+| `orgs` · `org-add` · `projects` · `use` · `unuse` | organization and project scope |
 | `commits` · `commit <sha>` | commit list / detail (module attribution and files) |
 | `explain <sha>` | the full correlation chain: requirement, modules, regression candidates, historical bugs, releases, data gaps |
 | `risk <sha>` · `module-risk <id>` | risk score with the per-signal contribution breakdown |
@@ -651,7 +670,8 @@ Copy `.env.example` to `.env`; key variables:
 
 | Method | Path | Minimum role |
 |---|---|---|
-| POST | `/api/v1/auth/register` · `/auth/login` · `/auth/refresh` · `/auth/logout` | — |
+| POST | `/api/v1/auth/github` · `/auth/refresh` · `/auth/logout` | — |
+| GET | `/api/v1/auth/github/config` | — |
 | GET/PATCH | `/api/v1/me` | authenticated |
 | GET/POST | `/api/v1/orgs` | authenticated (creator becomes admin) |
 | GET/PUT/PATCH/DELETE | `/api/v1/orgs/{org_pk}` | viewer / admin |
@@ -749,8 +769,8 @@ make cov       # tests with coverage
 make cli-verify  # terminal client: ruff + black --check + mypy + pytest
 ```
 
-- **559 backend tests**, none requiring internet access: `FakeGitProvider`, scripted fake AI providers, `httpx.MockTransport`; default `-m 'not network'`
-- **36 terminal-client tests**: the client is exercised over `httpx.MockTransport` (401 refresh, pagination, error envelope), the command layer through Typer's `CliRunner`, and the TUI through Textual's `run_test` pilot (it mounts, fills its tables, and the confirm/reject keys really reach the API)
+- **569 backend tests** (573 collected; the 4 `network` cases are deselected by default), none requiring internet access: `FakeGitProvider`, scripted fake AI providers, `httpx.MockTransport`; default `-m 'not network'`
+- **50 terminal-client tests**: the client is exercised over `httpx.MockTransport` (401 refresh, pagination, error envelope, and the GitHub device-flow polling state machine), the command layer through Typer's `CliRunner`, and the TUI through Textual's `run_test` pilot (it mounts, fills its tables, and the confirm/reject keys really reach the API)
 - S6 acceptance is locked by tests: no row without confirmation / exact creation + audit on confirmation / zero writes on rejection / `scope_denied` on unauthorized tool calls
 - The 4 tests in `tests/integration/test_github_live.py` hit `api.github.com` for real (anonymous GET, repo `octocat/Hello-World`); run manually:
 

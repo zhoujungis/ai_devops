@@ -85,7 +85,8 @@ cd D:\ai_devops\cli
 python -m venv .venv
 .venv\Scripts\python.exe -m pip install -e ".[dev]"
 
-.venv\Scripts\aidevops.exe login                    # 交互输入邮箱和密码
+.venv\Scripts\aidevops.exe login                    # GitHub 设备码登录（浏览器输入码授权）
+.venv\Scripts\aidevops.exe org-add "My Team"        # 新用户先建一个组织（创建者即 admin）
 .venv\Scripts\aidevops.exe projects                 # 列出项目
 .venv\Scripts\aidevops.exe use qa-copilot-platform  # 选中一个项目
 .venv\Scripts\aidevops.exe commits                  # 最近提交
@@ -101,6 +102,17 @@ python -m venv .venv
   可用 `AIDEVOPS_CONFIG` 指定别的路径，用 `AIDEVOPS_BASE_URL` 指向远程后端。
 - `--json` 是**全局**选项，放在子命令之前：`aidevops.exe --json findings`；
   也可用环境变量 `AIDEVOPS_JSON=1`，方便直接管道给 `jq`。
+
+## 从 0.1.0 升级（破坏性变更）
+
+- **`/api/v1/auth/login`、`/api/v1/auth/register` 已删除**：0.1.0 的 CLI 用邮箱密码
+  登录，这两个端点现在都不存在。**必须升级客户端**：`pipx upgrade aidevops`
+  （或 `pip install -U aidevops`），否则登录直接 404。
+- **登录改为 GitHub 设备码流程**：`.env` 里必须配 `GITHUB_CLIENT_ID`（OAuth App 要勾
+  **Enable Device Flow**），否则 `aidevops login` 会明确报错（见下方「首次使用」）。
+- **老账号不会自动迁移**：既有的邮箱密码账号（本机的 `me@example.com`）**不会被自动
+  绑定到 GitHub**。首次用 GitHub 登录会**新建**一个账号，老账号及其组织/项目不会自动
+  跟过来。本机只有一个无组织的老账号，直接重建即可（旧行可留可删，不影响使用）。
 
 ## 数据库维护
 
@@ -146,18 +158,26 @@ cd D:\ai_devops\cli
 > `pyproject.toml` 里的 `config.settings.test`，被它覆盖后测试会用 dev 配置运行：
 > Celery 不再 eager，异步用例会挂在「任务永远没人执行」上。
 
-## 首次使用要点账号
+## 首次使用：GitHub 登录
+
+登录只走 GitHub 设备码流程，需要先在 GitHub 建一个 OAuth App：
+
+1. GitHub → Settings → Developer settings → **OAuth Apps** → New OAuth App
+2. **务必勾选 Enable Device Flow**（不勾会报 `device_flow_disabled`）
+3. 建完把 **Client ID** 填进仓库根目录 `.env` 的 `GITHUB_CLIENT_ID=`，重启后端。
+   **不需要 Client Secret** —— 设备码流程根本不用它。
+
+然后：
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/v1/auth/register \
-  -H "Content-Type: application/json" \
-  -d "{\"email\":\"me@example.com\",\"password\":\"devpass12345\"}"
+cd D:\ai_devops\cli
+.venv\Scripts\aidevops.exe login              # 浏览器打开 github.com/login/device，输入终端里显示的码
+.venv\Scripts\aidevops.exe org-add "My Team"  # 新用户先建一个组织，之后才能建项目
+.venv\Scripts\aidevops.exe projects           # 应该能看到刚建的组织下的项目（初始为空）
 ```
 
-> 注意路径**没有尾斜杠**。`/api/v1/auth/login/` 带斜杠会返回 404 —— 路由就是这么
-> 声明的，整个 API 都遵循这个约定。
-
-也可以之后直接用 `aidevops login` 登录已有账号。
+> `/api/v1/auth/github` 与 `/api/v1/auth/github/config` **都没有尾斜杠** —— 带斜杠会
+> 返回 404，整个 API 都遵循这个约定。旧的 `/auth/register`、`/auth/login` 已删除。
 
 ## 灌入演示数据
 
@@ -178,6 +198,37 @@ backend\.venv\Scripts\python.exe scripts\verify_demo_api.py  # 走真实 HTTP �
 > **为什么需要脚本而不是直接调 API**：`AIFinding` 和 `AIRecommendation` 的
 > serializer 全部 `read_only`——按设计它们只能由 agent 运行产生，HTTP 无法写入。
 > 而且真实的仓库数据需要外部 Git 平台，本地没有。所以演示数据走 ORM。
+
+## 接真实仓库（同步排错）
+
+`seed_demo.py` 写的连接用的是**假 token**，所以 `aidevops sync` 必然失败 —— 那是预期的。
+要接真仓库：
+
+```bash
+cd D:\ai_devops\cli
+.venv\Scripts\aidevops.exe connections                        # 拿 connection id
+.venv\Scripts\aidevops.exe connection-verify <connection-id>  # 先验证凭据
+.venv\Scripts\aidevops.exe repos                              # 拿 repository id
+.venv\Scripts\aidevops.exe sync <repository-id> --wait
+```
+
+### 看到 404 先别怀疑仓库不存在
+
+GitHub 对**私有库的无权限访问返回 404 而不是 403**（有意为之，不泄露仓库是否存在）。
+所以 `GitNotFoundError: GitHub returned 404` 通常是**凭据无效/无权限**，不是仓库没了。
+
+按这个顺序查：
+
+1. **`base_url` 要用默认值（留空或 `https://api.github.com`）。**
+   填 `https://github.com` 是**网页站**，所有 API 路径都会 404，而 `connection-verify`
+   打 `/user` 得到 **406**，现象极像"仓库不存在"。这是最容易踩的一个坑。
+2. `connection-verify` 是否返回 `Verified (active)`。不是就换 token
+   （私有库需要 `repo` scope 的 PAT）。
+3. 看**真实请求 URL**：`.run/django.log` 与 `.run/celery-worker.log` 里 httpx 会打出完整
+   URL，一眼能分辨是打错主机还是真没权限。
+
+> `sync --wait` 报 `failed` 时，请以 `repos` 显示的 `LAST SYNCED` 和实际数据为准：
+> 入队后 worker 需要一点时间接手，早先的版本会把上一轮遗留的失败状态当成本次结果。
 
 ## 已知限制
 

@@ -36,6 +36,12 @@ class User(AbstractUser):
     email = models.EmailField(unique=True)
     display_name = models.CharField(max_length=150, blank=True)
     avatar_url = models.URLField(blank=True)
+    # Identity is anchored on the immutable GitHub numeric id; the login can be
+    # renamed by the user and the email may be private or changed, so neither is
+    # safe to match on. Both stay nullable because the pre-existing account (and any
+    # account created by a future path) has no GitHub identity yet.
+    github_id = models.BigIntegerField(unique=True, null=True, blank=True)
+    github_login = models.CharField(max_length=150, blank=True)
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS: ClassVar[list[str]] = []

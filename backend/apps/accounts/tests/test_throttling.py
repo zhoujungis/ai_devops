@@ -18,6 +18,8 @@ from django.core.cache import cache
 from rest_framework.test import APIClient
 from rest_framework.throttling import SimpleRateThrottle
 
+from apps.accounts import github
+
 pytestmark = pytest.mark.django_db
 
 
@@ -33,14 +35,21 @@ def _clear_throttle_cache() -> Iterator[None]:
     cache.clear()
 
 
-def test_login_is_throttled(monkeypatch: pytest.MonkeyPatch) -> None:
-    _rates(monkeypatch, login="2/min")
+def test_the_github_login_is_throttled(monkeypatch: pytest.MonkeyPatch) -> None:
+    _rates(monkeypatch, github="2/min")
+    # Keep the view off the network: the counter is incremented before the handler
+    # runs, so a rejected token is enough to prove the throttle bites.
+    monkeypatch.setattr(
+        github,
+        "identity_from_token",
+        lambda _token: (_ for _ in ()).throw(github.GitHubAuthError("nope")),
+    )
     client = APIClient()
-    payload = {"email": "nobody@example.com", "password": "not-the-password"}
+    payload = {"access_token": "not-a-token"}
 
-    first = client.post("/api/v1/auth/login", payload, format="json")
-    second = client.post("/api/v1/auth/login", payload, format="json")
-    third = client.post("/api/v1/auth/login", payload, format="json")
+    first = client.post("/api/v1/auth/github", payload, format="json")
+    second = client.post("/api/v1/auth/github", payload, format="json")
+    third = client.post("/api/v1/auth/github", payload, format="json")
 
     assert first.status_code != 429
     assert second.status_code != 429
@@ -75,7 +84,7 @@ def test_the_webhook_is_throttled(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_an_unscoped_endpoint_is_not_throttled(monkeypatch: pytest.MonkeyPatch) -> None:
     """The throttles are scoped; ordinary reads must not be caught by them."""
-    _rates(monkeypatch, login="2/min", register="2/min", refresh="2/min", webhook="2/min")
+    _rates(monkeypatch, github="2/min", refresh="2/min", webhook="2/min")
     client = APIClient()
 
     for _ in range(5):

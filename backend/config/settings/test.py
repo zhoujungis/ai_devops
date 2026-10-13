@@ -31,8 +31,7 @@ CELERY_BROKER_URL = "memory://"
 REST_FRAMEWORK = {
     **REST_FRAMEWORK,
     "DEFAULT_THROTTLE_RATES": {
-        "login": "100000/min",
-        "register": "100000/min",
+        "github": "100000/min",
         "refresh": "100000/min",
         "webhook": "100000/min",
     },

@@ -27,6 +27,12 @@ class StubClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, Any]] = []
         self.responses: dict[str, Any] = {}
+        # `login` routes the CLI through the device flow, so the app parameters are
+        # returned from here; a test can blank the client id to exercise the guard.
+        self.github_config_response: dict[str, Any] = {
+            "client_id": "Iv1.test-client",
+            "scopes": ["read:user", "user:email"],
+        }
 
     def _lookup(self, path: str) -> Any:
         value = self.responses.get(path, [])
@@ -58,9 +64,17 @@ class StubClient:
         self.calls.append(("delete", path, None))
         return None
 
-    def login(self, email: str, password: str) -> dict[str, Any]:
-        self.calls.append(("login", email, password))
-        return {"user": {"email": email}, "access": "a", "refresh": "r"}
+    def login_with_github(self, access_token: str) -> dict[str, Any]:
+        self.calls.append(("login_with_github", access_token, None))
+        return {
+            "user": {"github_login": "octocat", "email": "octocat@example.com"},
+            "access": "a",
+            "refresh": "r",
+        }
+
+    def github_config(self) -> dict[str, Any]:
+        self.calls.append(("github_config", "", None))
+        return self.github_config_response
 
     def logout(self) -> None:
         self.calls.append(("logout", "", None))
@@ -77,6 +91,7 @@ def config_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
                 "access": "access-token",
                 "refresh": "refresh-token",
                 "email": "me@example.com",
+                "github_login": "octocat",
                 "org_id": "org-1",
                 "org_name": "demo-org",
                 "project_id": "proj-1",

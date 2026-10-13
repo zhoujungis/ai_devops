@@ -27,6 +27,16 @@ def orgs() -> None:
     )
 
 
+def org_add(name: str = typer.Argument(..., help="Name of the organization to create.")) -> None:
+    """Create an organization; you become its first admin.
+
+    There is no signup endpoint, so a brand-new user starts with no organization at
+    all — this is how they get their first one (and then their first project).
+    """
+    org = context.client().post("/orgs", {"name": name})
+    output.success(f"Created organization {org.get('slug') or org.get('name')} ({org['id']}).")
+
+
 def projects() -> None:
     """List every project across your organizations."""
     client = context.client()

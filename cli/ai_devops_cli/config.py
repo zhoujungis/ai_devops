@@ -37,6 +37,7 @@ class Settings:
     access: str = ""
     refresh: str = ""
     email: str = ""
+    github_login: str = ""
     org_id: str = ""
     org_name: str = ""
     project_id: str = ""

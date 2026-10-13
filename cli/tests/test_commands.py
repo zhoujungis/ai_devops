@@ -8,12 +8,17 @@ to break.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
+import pytest
 from typer.testing import CliRunner
 
+from ai_devops_cli import context
 from ai_devops_cli.client import ApiError
+from ai_devops_cli.commands import auth, repos
 from ai_devops_cli.main import app
 from tests.conftest import StubClient
 
@@ -382,6 +387,92 @@ def test_repo_update_with_nothing_to_change_is_an_error(stub: StubClient) -> Non
     assert "Nothing to change" in _text(result)
 
 
+class _FakeClock:
+    """Stands in for `time` so the poll loop advances without real waiting."""
+
+    def __init__(self, on_sleep: Callable[[], None]) -> None:
+        self._on_sleep = on_sleep
+        self._now = 0.0
+
+    def monotonic(self) -> float:
+        return self._now
+
+    def sleep(self, seconds: float) -> None:
+        self._now += seconds
+        self._on_sleep()
+
+
+class _CopyingStub(StubClient):
+    """A stub whose GETs return a fresh dict, like two separate HTTP responses."""
+
+    def get(self, path: str, **params: Any) -> Any:
+        value = super().get(path, **params)
+        return dict(value) if isinstance(value, dict) else value
+
+
+def _stale_failed_row() -> dict[str, Any]:
+    """What a repository looks like after an earlier run failed."""
+    return {
+        "id": "r1",
+        "full_name": "acme/era",
+        "sync_status": "failed",
+        "sync_error": "GitNotFoundError: GitHub returned 404 for /repos/acme/era/commits.",
+        "last_synced_at": "2026-09-23T06:03:14Z",
+    }
+
+
+def test_sync_wait_reports_this_run_not_the_previous_failure(
+    config_file: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A row left `failed` by an earlier run must not be read as this run's result.
+
+    Queueing a sync does not touch the row -- only the worker does, once it starts --
+    so the first poll still sees the previous outcome.
+    """
+    client = _CopyingStub()
+    path = f"{PROJECT}/repositories/r1"
+    client.responses[path] = _stale_failed_row()
+    monkeypatch.setattr(context, "client", lambda: client)
+
+    steps = iter(
+        [
+            {"sync_status": "running"},
+            {
+                "sync_status": "succeeded",
+                "sync_error": "",
+                "last_synced_at": "2026-10-13T10:33:22Z",
+            },
+        ]
+    )
+
+    def advance() -> None:
+        client.responses[path].update(next(steps))
+
+    monkeypatch.setattr(repos, "time", _FakeClock(advance))
+
+    result = runner.invoke(app, ["sync", "r1", "--wait", "--interval", "1"])
+
+    text = _text(result)
+    assert result.exit_code == 0, text
+    assert "Synced acme/era" in text
+    assert "404" not in text, "the previous run's error must not be reported"
+
+
+def test_sync_wait_gives_up_when_the_run_never_starts(
+    config_file: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unchanged terminal row is not proof the queued run happened."""
+    client = _CopyingStub()
+    client.responses[f"{PROJECT}/repositories/r1"] = _stale_failed_row()
+    monkeypatch.setattr(context, "client", lambda: client)
+    monkeypatch.setattr(repos, "time", _FakeClock(lambda: None))
+
+    result = runner.invoke(app, ["sync", "r1", "--wait", "--interval", "5", "--timeout", "10"])
+
+    assert result.exit_code == 1
+    assert "did not finish within 10s" in _text(result)
+
+
 def test_findings_worst_first_asks_the_server_to_rank_by_severity(stub: StubClient) -> None:
     stub.responses[f"{PROJECT}/ai/findings"] = []
 
@@ -426,3 +517,78 @@ def test_audit_lists_the_organization_trail(stub: StubClient) -> None:
     # The action code is long enough that rich wraps it across lines, so the request is
     # asserted on rather than a substring of the rendered table.
     assert any(call[0] == "results" and call[1] == "/orgs/org-1/audit-logs" for call in stub.calls)
+
+
+class _FakeFlow:
+    """Stands in for the real device flow so 'login' never touches GitHub."""
+
+    def __init__(self) -> None:
+        self.closed = False
+
+    def request_device_code(self, client_id: str, scopes: list[str]) -> SimpleNamespace:
+        assert client_id == "Iv1.test-client"
+        assert scopes == ["read:user", "user:email"]
+        return SimpleNamespace(
+            device_code="dc",
+            user_code="WDJB-MJHT",
+            verification_uri="https://github.com/login/device",
+            expires_in=900,
+            interval=1,
+        )
+
+    def poll_access_token(
+        self, client_id: str, device_code: str, *, interval: int, **kwargs: Any
+    ) -> str:
+        assert device_code == "dc"
+        return "gho_token"
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_login_runs_the_device_flow_and_exchanges_the_token(
+    stub: StubClient, monkeypatch: Any
+) -> None:
+    captured: dict[str, _FakeFlow] = {}
+
+    def make_flow() -> _FakeFlow:
+        captured["flow"] = _FakeFlow()
+        return captured["flow"]
+
+    monkeypatch.setattr(auth, "GitHubDeviceFlow", make_flow)
+
+    result = runner.invoke(app, ["login", "--no-browser"])
+
+    assert result.exit_code == 0
+    assert "WDJB-MJHT" in result.output
+    assert "Signed in as octocat" in result.output
+    assert ("login_with_github", "gho_token", None) in stub.calls
+    assert captured["flow"].closed is True
+
+
+def test_login_reports_a_server_without_a_client_id(stub: StubClient) -> None:
+    stub.github_config_response = {"client_id": "", "scopes": []}
+
+    result = runner.invoke(app, ["login", "--no-browser"])
+
+    assert result.exit_code == 1
+    assert "GITHUB_CLIENT_ID" in _text(result)
+
+
+def test_org_add_creates_an_organization(stub: StubClient) -> None:
+    stub.responses["/orgs"] = {"id": "org-9", "slug": "my-team", "name": "My Team"}
+
+    result = runner.invoke(app, ["org-add", "My Team"])
+
+    assert result.exit_code == 0
+    assert "my-team" in result.output
+    assert ("post", "/orgs", {"name": "My Team"}) in stub.calls
+
+
+def test_status_shows_the_github_login(stub: StubClient) -> None:
+    stub.responses["/me"] = {"github_login": "octocat", "email": "octocat@example.com"}
+
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0
+    assert "octocat" in result.output

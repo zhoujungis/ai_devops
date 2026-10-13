@@ -27,18 +27,34 @@ def _client(settings: Settings, handler: Callable[[httpx.Request], httpx.Respons
     return Client(settings, transport=httpx.MockTransport(handler))
 
 
-def test_login_stores_the_token_pair(settings: Settings) -> None:
+def test_login_with_github_stores_the_token_pair_and_the_login(settings: Settings) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/api/v1/auth/login"
+        assert request.url.path == "/api/v1/auth/github"
         return httpx.Response(
-            200, json={"access": "A", "refresh": "R", "user": {"email": "me@example.com"}}
+            200,
+            json={
+                "access": "A",
+                "refresh": "R",
+                "user": {"github_login": "octocat", "email": "octocat@example.com"},
+            },
         )
 
-    _client(settings, handler).login("me@example.com", "pw")
+    _client(settings, handler).login_with_github("gho_token")
 
     assert settings.access == "A"
     assert settings.refresh == "R"
-    assert settings.email == "me@example.com"
+    assert settings.github_login == "octocat"
+    assert settings.email == "octocat@example.com"
+
+
+def test_github_config_reads_the_app_parameters(settings: Settings) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/v1/auth/github/config"
+        return httpx.Response(200, json={"client_id": "Iv1.x", "scopes": ["read:user"]})
+
+    config = _client(settings, handler).github_config()
+
+    assert config == {"client_id": "Iv1.x", "scopes": ["read:user"]}
 
 
 def test_a_401_refreshes_once_and_retries(settings: Settings) -> None:

@@ -9,9 +9,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from django.contrib.auth import authenticate
-from django.contrib.auth.password_validation import validate_password
-from django.db import transaction
 from rest_framework import serializers
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -23,77 +20,36 @@ from apps.accounts.models import (
     ProjectMembership,
     User,
 )
-from apps.accounts.roles import Role
-from apps.accounts.services import issue_tokens
 
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ("id", "email", "display_name", "avatar_url", "date_joined", "is_active")
-        read_only_fields = ("id", "email", "date_joined", "is_active")
-
-
-class RegisterSerializer(serializers.Serializer):
-    """Self-service signup.
-
-    Supplying ``organization_name`` also creates that organization with the new
-    user as its admin. Omitting it leaves the user organization-less until
-    somebody invites them, which is the normal path for colleagues.
-    """
-
-    email = serializers.EmailField()
-    password = serializers.CharField(
-        write_only=True, style={"input_type": "password"}, trim_whitespace=False
-    )
-    display_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
-    organization_name = serializers.CharField(max_length=200, required=False, allow_blank=True)
-
-    def validate_email(self, value: str) -> str:
-        email = value.strip().lower()
-        if User.objects.filter(email=email).exists():
-            raise serializers.ValidationError("A user with this email address already exists.")
-        return email
-
-    def validate_password(self, value: str) -> str:
-        validate_password(value)
-        return value
-
-    def create(self, validated_data: dict[str, Any]) -> User:
-        organization_name: str = validated_data.get("organization_name", "")
-        with transaction.atomic():
-            user = User.objects.create_user(
-                email=validated_data["email"],
-                password=validated_data["password"],
-                display_name=validated_data.get("display_name", ""),
-            )
-            if organization_name:
-                org = Organization.objects.create(name=organization_name)
-                Membership.objects.create(org=org, user=user, role=Role.ADMIN)
-        return user
-
-
-class LoginSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    password = serializers.CharField(
-        write_only=True, style={"input_type": "password"}, trim_whitespace=False
-    )
-
-    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        user = authenticate(
-            request=self.context.get("request"),
-            email=attrs["email"].strip().lower(),
-            password=attrs["password"],
+        fields = (
+            "id",
+            "email",
+            "display_name",
+            "avatar_url",
+            "github_login",
+            "date_joined",
+            "is_active",
         )
-        # A disabled account also lands here: ModelBackend.user_can_authenticate()
-        # rejects it, so this single message covers unknown email, wrong password
-        # and disabled account alike. That is deliberate — the response must not
-        # reveal which accounts exist.
-        if user is None:
-            raise serializers.ValidationError(
-                {"detail": "Invalid email or password."}, code="authorization"
-            )
-        return {**issue_tokens(user), "user": user}
+        # `display_name` and `avatar_url` stay editable; GitHub owns `github_login`
+        # and `email` is read-only (it is what memberships reference).
+        read_only_fields = ("id", "email", "github_login", "date_joined", "is_active")
+
+
+class GitHubLoginSerializer(serializers.Serializer):
+    """The GitHub access token the CLI obtained from the device flow."""
+
+    access_token = serializers.CharField(write_only=True, trim_whitespace=False)
+
+
+class GitHubConfigSerializer(serializers.Serializer):
+    """What the CLI needs to start a device flow, so it never hardcodes the app id."""
+
+    client_id = serializers.CharField()
+    scopes = serializers.ListField(child=serializers.CharField())
 
 
 class LoginResponseSerializer(serializers.Serializer):
