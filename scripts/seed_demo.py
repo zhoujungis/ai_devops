@@ -192,9 +192,23 @@ def seed_project(project: Project, user: User) -> None:
         },
     )
 
-    full_name = (
-        "zhoujungis/era_1978" if project.slug == "qa-copilot-platform" else "zhoujungis/blog"
-    )
+    # Both are real repositories. A demo dataset that points at a name which does not
+    # exist upstream is worse than no demo at all: every sync fails, and the sweeper
+    # keeps trying, so the first thing a new user sees is a broken-looking repository.
+    #
+    # The branch is part of that: a repository is not the only thing GitHub answers 404
+    # for -- so is an unknown ref. The real API path goes through ``connect_repository``,
+    # which asks the provider for the branch; this script cannot, so it pins the values.
+    # The blog repository is named zhoujungis.github.io, hence the doubled name.
+    if project.slug == "qa-copilot-platform":
+        full_name, default_branch, is_private = "zhoujungis/era_1978", "main", True
+    else:
+        full_name, default_branch, is_private = (
+            "zhoujungis/zhoujungis.github.io",
+            "master",
+            False,
+        )
+
     repository, _ = Repository.objects.update_or_create(
         project=project,
         full_name=full_name,
@@ -205,8 +219,8 @@ def seed_project(project: Project, user: User) -> None:
             # and Python's hash() is salted per process, which would create a new row
             # on every run.
             "external_id": f"demo-{project.slug}",
-            "default_branch": "main",
-            "is_private": True,
+            "default_branch": default_branch,
+            "is_private": is_private,
             "sync_status": SyncStatus.SUCCEEDED,
             "sync_window_days": 90,
             "module_depth": 2,

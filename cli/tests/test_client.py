@@ -148,3 +148,28 @@ def test_a_transport_error_is_reported_as_a_connection_error(settings: Settings)
 
     assert caught.value.code == "connection_error"
     assert caught.value.status == 0
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "http://127.0.0.1:8000/api/v1",
+        "http://localhost:5173/api/v1",
+        "http://[::1]:8000/api/v1",
+    ],
+)
+def test_a_local_api_ignores_the_environment_proxy(config_file: Path, base_url: str) -> None:
+    """HTTP_PROXY exists to reach the outside world, and the local API is not outside.
+
+    Without this, a developer who has one set -- routine behind a corporate proxy --
+    sends their 127.0.0.1 requests to the proxy, which answers 404 for a path it has
+    never heard of.
+    """
+    with Client(Settings(base_url=base_url)) as client:
+        assert client._http.trust_env is False
+
+
+def test_a_remote_api_still_honours_the_environment_proxy(config_file: Path) -> None:
+    """A proxy may be the only way out to a hosted API, so leave it in play there."""
+    with Client(Settings(base_url="https://qa.example.com/api/v1")) as client:
+        assert client._http.trust_env is True

@@ -12,6 +12,7 @@ from typing import Any, ClassVar, cast
 from django.conf import settings as django_settings
 from django.db import IntegrityError, transaction
 from django.db.models import Prefetch
+from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 from rest_framework import status, viewsets
 from rest_framework.exceptions import APIException, PermissionDenied
@@ -98,6 +99,11 @@ class GitHubLoginView(APIView):
             # The identity is verified; the account is simply not allowed in. 403,
             # not 401, so a deactivated user is not told their token was wrong.
             raise PermissionDenied("This account is disabled.")
+
+        # This view issues JWTs rather than going through django.contrib.auth.login, so
+        # the user_logged_in signal never fires and last_login would stay null forever.
+        user.last_login = timezone.now()
+        user.save(update_fields=["last_login"])
 
         return Response({**issue_tokens(user), "user": UserSerializer(user).data})
 

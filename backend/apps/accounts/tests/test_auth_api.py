@@ -102,6 +102,23 @@ def test_github_login_matches_an_existing_user_by_github_id(
     assert existing.github_login == "octocat-renamed"
 
 
+def test_a_successful_login_records_last_login(
+    api_client: APIClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Issuing a JWT bypasses django.contrib.auth.login, so nothing else sets this."""
+    existing = User.objects.create_from_github(
+        github_id=1001, login="octocat", email="octocat@example.com", avatar_url=""
+    )
+    assert existing.last_login is None
+    _github_returns(monkeypatch, _identity())
+
+    response = api_client.post(GITHUB_URL, {"access_token": "gho_token"}, format="json")
+
+    assert response.status_code == 200
+    existing.refresh_from_db()
+    assert existing.last_login is not None
+
+
 def test_github_login_rejects_an_invalid_token(
     api_client: APIClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

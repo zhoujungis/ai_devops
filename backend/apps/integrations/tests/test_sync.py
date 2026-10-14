@@ -14,7 +14,7 @@ from apps.codebase.models import Branch, Commit, Module
 from apps.integrations.git.base import GitProviderError, RemoteBranch, RemoteCommit
 from apps.integrations.models import Repository, SyncStatus
 from apps.integrations.sync import sync_repository
-from apps.integrations.tasks import sync_stale_repositories
+from apps.integrations.tasks import FAILED_SWEEP_INTERVAL_MINUTES, sync_stale_repositories
 from apps.integrations.tests.factories import build_repository
 from apps.integrations.tests.fakes import FakeGitProvider, failing_provider, make_remote_commit
 
@@ -197,3 +197,28 @@ def test_only_stale_and_idle_repositories_are_queued(
         last_synced_at=timezone.now() - timedelta(hours=4), sync_status=SyncStatus.RUNNING
     )
     assert sync_stale_repositories() == {"queued": 0}
+
+
+def test_a_repository_that_just_failed_waits_before_being_swept_again(
+    repository: Repository, monkeypatch: Any
+) -> None:
+    """A failure needs a human, so the sweeper backs off instead of hammering GitHub."""
+    queued: list[str] = []
+    monkeypatch.setattr("apps.integrations.tasks.sync_repository_task", _Recorder(queued))
+
+    Repository.objects.filter(pk=repository.pk).update(
+        last_synced_at=timezone.now() - timedelta(hours=4),
+        sync_status=SyncStatus.FAILED,
+        sync_error="GitAuthenticationError: GitHub rejected the credentials.",
+    )
+
+    assert sync_stale_repositories() == {"queued": 0}
+    assert queued == []
+
+    # Once the attempt is old enough the sweeper does try again, so a transient outage
+    # heals on its own rather than needing someone to click sync.
+    Repository.objects.filter(pk=repository.pk).update(
+        updated_at=timezone.now() - timedelta(minutes=FAILED_SWEEP_INTERVAL_MINUTES + 1)
+    )
+    assert sync_stale_repositories() == {"queued": 1}
+    assert queued == [str(repository.pk)]

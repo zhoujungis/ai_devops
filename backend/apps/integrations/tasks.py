@@ -32,6 +32,14 @@ logger = logging.getLogger(__name__)
 RATE_LIMIT_RETRY_SECONDS = 300
 TRANSIENT_RETRY_SECONDS = 60
 
+#: How long the sweeper leaves a repository alone after a run failed. A failure is
+#: usually a misconfiguration -- a bad token, a repository that moved -- and
+#: ``sync_repository_task`` already refuses to retry those, because retrying cannot fix
+#: them. Sweeping on the normal interval would instead hammer GitHub every few minutes
+#: forever, so a failed repository waits for the long timer: enough to recover from an
+#: outage, rare enough to stay out of the logs.
+FAILED_SWEEP_INTERVAL_MINUTES = 6 * 60
+
 
 @shared_task(bind=True, max_retries=5)
 def sync_repository_task(self: Any, repository_id: str, limit: int | None = None) -> dict[str, Any]:
@@ -73,14 +81,18 @@ def sync_stale_repositories() -> dict[str, int]:
     missed (a delivery dropped, a hook never configured, a worker restart). The window
     is ``GIT_SYNC_INTERVAL_MINUTES``, which is also how often beat runs this, so a
     repository a webhook already refreshed is left alone — and one already syncing is
-    skipped rather than queued twice.
+    skipped rather than queued twice. One that just failed waits much longer, because
+    the next attempt cannot succeed until a human changes something.
     """
-    cutoff = timezone.now() - timedelta(minutes=settings.GIT_SYNC_INTERVAL_MINUTES)
+    now = timezone.now()
+    cutoff = now - timedelta(minutes=settings.GIT_SYNC_INTERVAL_MINUTES)
+    failed_cutoff = now - timedelta(minutes=FAILED_SWEEP_INTERVAL_MINUTES)
     stale = list(
         Repository.objects.filter(
             models.Q(last_synced_at__lt=cutoff) | models.Q(last_synced_at__isnull=True)
         )
         .exclude(sync_status=SyncStatus.RUNNING)
+        .exclude(sync_status=SyncStatus.FAILED, updated_at__gte=failed_cutoff)
         .values_list("pk", flat=True)
     )
 

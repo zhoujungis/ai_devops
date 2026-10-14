@@ -102,6 +102,12 @@ python -m venv .venv
   可用 `AIDEVOPS_CONFIG` 指定别的路径，用 `AIDEVOPS_BASE_URL` 指向远程后端。
 - `--json` 是**全局**选项，放在子命令之前：`aidevops.exe --json findings`；
   也可用环境变量 `AIDEVOPS_JSON=1`，方便直接管道给 `jq`。
+- **版本自检**：每次运行都会比对 PyPI 上的最新版，落后了就用**红字**提示
+  （`aidevops X.Y.Z is available ...`）。结果缓存 24 小时，`--json` 时提示走 stderr，
+  不污染 stdout。关掉它：`set AIDEVOPS_NO_UPDATE_CHECK=1`。
+- **`aidevops upgrade`** 安装最新版。它会自己判断怎么升：pipx 装的走 `pipx upgrade`，
+  否则走 `pip install --upgrade`。**本仓库的 `cli\.venv` 是 `pip install -e` 装的，
+  它会拒绝并让你用 `git pull`** —— 因为升级会把工作区换成已发布版本。
 
 ## 从 0.1.0 升级（破坏性变更）
 

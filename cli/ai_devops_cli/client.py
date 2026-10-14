@@ -26,6 +26,21 @@ DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code"
 DEFAULT_DEVICE_VERIFICATION_URI = "https://github.com/login/device"
 CODE_EXPIRED_MESSAGE = "The code expired before it was authorised. Run login again."
 
+#: Hosts that mean "this machine". A proxy exported into the environment exists to
+#: reach the outside world, and these are not that.
+_LOOPBACK_HOSTS = frozenset({"localhost", "::1"})
+
+
+def _is_loopback(url: str) -> bool:
+    """True when the API base URL points at this machine.
+
+    Without this check httpx honours ``HTTP_PROXY`` for loopback too, so a developer who
+    has one set -- routine behind a corporate proxy -- sends their 127.0.0.1 requests to
+    the proxy, which answers 404 for a path it has never heard of.
+    """
+    host = httpx.URL(url).host or ""
+    return host in _LOOPBACK_HOSTS or host.startswith("127.")
+
 
 class ApiError(RuntimeError):
     """A non-2xx response, carrying the backend's ``{"error": {...}}`` envelope."""
@@ -193,7 +208,14 @@ class Client:
         self.settings = settings
         # `transport` is a test seam: passing an httpx.MockTransport exercises the
         # auth, pagination and error-handling logic without a live server.
-        self._http = httpx.Client(base_url=settings.base_url, timeout=timeout, transport=transport)
+        self._http = httpx.Client(
+            base_url=settings.base_url,
+            timeout=timeout,
+            transport=transport,
+            # Environment proxies stay in play for a remote base URL, where they may be
+            # the only way out, but never for a local one.
+            trust_env=not _is_loopback(settings.base_url),
+        )
 
     def close(self) -> None:
         self._http.close()
