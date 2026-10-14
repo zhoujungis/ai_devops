@@ -15,9 +15,19 @@ from typing import Any
 
 import typer
 
-from ai_devops_cli import context, output
+from ai_devops_cli import context, output, update
 from ai_devops_cli.client import ApiError
-from ai_devops_cli.commands import ai, audit, auth, code, providers, repos, scope, tracker
+from ai_devops_cli.commands import (
+    ai,
+    audit,
+    auth,
+    code,
+    providers,
+    repos,
+    scope,
+    tracker,
+    upgrade,
+)
 from ai_devops_cli.errors import CliError
 
 HELP = (
@@ -31,14 +41,25 @@ HELP = (
     "  aidevops explain <sha>\n"
     "  aidevops findings\n\n"
     "'--json' is a global option: put it before the command, as in "
-    "'aidevops --json findings' (or set AIDEVOPS_JSON=1)."
+    "'aidevops --json findings' (or set AIDEVOPS_JSON=1).\n\n"
+    "A newer release is announced in red on every run; 'aidevops upgrade' installs it. "
+    "Set AIDEVOPS_NO_UPDATE_CHECK=1 to silence that."
 )
 
-app = typer.Typer(no_args_is_help=True, add_completion=True, help=HELP)
+app = typer.Typer(
+    # Help is printed from the callback rather than by `no_args_is_help`, because Click
+    # raises that error before the callback runs -- which would hide the release hint
+    # from the bare invocation people type first.
+    no_args_is_help=False,
+    invoke_without_command=True,
+    add_completion=True,
+    help=HELP,
+)
 
 
 @app.callback()
 def _root(
+    ctx: typer.Context,
     json_output: bool = typer.Option(False, "--json", help="Print raw JSON instead of tables."),
     base_url: str | None = typer.Option(
         None, "--base-url", help="Override the stored API base URL."
@@ -48,6 +69,15 @@ def _root(
     from_env = os.environ.get("AIDEVOPS_JSON", "").strip().lower() in {"1", "true", "yes", "on"}
     output.set_json(json_output or from_env)
     context.configure(base_url=base_url)
+
+    # After set_json, so the hint knows whether stdout carries a payload or is for a
+    # human. `upgrade` is skipped because it does its own version work.
+    if ctx.invoked_subcommand not in update.SKIP_CHECK_COMMANDS:
+        update.hint()
+
+    if ctx.invoked_subcommand is None:
+        typer.echo(ctx.get_help())
+        raise typer.Exit()
 
 
 def _command(name: str, summary: str) -> Callable[[Callable[..., Any]], None]:
@@ -93,6 +123,9 @@ _command("logout", "Forget the local session.")(auth.logout)
 _command("me", "Show the authenticated user.")(auth.me)
 _command("status", "Show what the CLI is pointed at.")(auth.status)
 _command("version", "Print the CLI version.")(auth.version)
+
+# --- the client itself -----------------------------------------------------
+_command("upgrade", "Install the newest release from PyPI.")(upgrade.upgrade)
 
 # --- scope -----------------------------------------------------------------
 _command("orgs", "List your organizations.")(scope.orgs)

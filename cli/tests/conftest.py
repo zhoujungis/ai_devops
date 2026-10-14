@@ -80,6 +80,17 @@ class StubClient:
         self.calls.append(("logout", "", None))
 
 
+@pytest.fixture(autouse=True)
+def _no_update_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the suite hermetic.
+
+    Every command checks PyPI for a newer release, so without this a test run would
+    depend on the network being up -- and would write to the developer's real cache
+    directory. The check's own tests turn it back on explicitly.
+    """
+    monkeypatch.setenv("AIDEVOPS_NO_UPDATE_CHECK", "1")
+
+
 @pytest.fixture
 def config_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """A logged-in config with a project selected, at a throwaway path."""

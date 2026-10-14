@@ -216,6 +216,10 @@ aidevops use qa-copilot-platform     # 选中项目，后续命令默认作用�
 aidevops status                      # 当前后端 / 账号 / 项目
 ```
 
+新版本会在每次运行时**用红字**提示（`aidevops X.Y.Z is available ...`），装它用
+`aidevops upgrade`；设 `AIDEVOPS_NO_UPDATE_CHECK=1` 可关掉这项检查。检查结果缓存
+24 小时（每个机器每天最多查一次 PyPI），并且 `--json` 时提示走 stderr、不污染 stdout。
+
 ### 命令一览
 
 | 命令 | 作用 |
@@ -234,6 +238,7 @@ aidevops status                      # 当前后端 / 账号 / 项目
 | `providers` · `provider-add` · `provider-verify` · `provider-remove` | 模型凭据（组织级，仅管理员）；`provider-verify` 在跑分析之前先把密钥验一遍 |
 | `requirements` · `test-cases` · `test-runs` · `bugs` · `releases` | 只读台账 |
 | `audit` | 审计流水（组织级，仅管理员） |
+| `upgrade` | 升级到 PyPI 上的最新版本（开发检出处会拒绝，改用 `git pull`） |
 | `tui` | 全屏交互式仪表盘（Proposals / Findings / Commits） |
 
 ### 约定
@@ -612,6 +617,11 @@ aidevops use qa-copilot-platform     # select it; later commands act on it by de
 aidevops status                      # backend / account / project in effect
 ```
 
+A newer release is announced **in red** on every run (`aidevops X.Y.Z is available ...`);
+`aidevops upgrade` installs it. Set `AIDEVOPS_NO_UPDATE_CHECK=1` to switch the check off.
+The answer is cached for 24 hours -- one PyPI lookup per machine per day -- and under
+`--json` the hint goes to stderr so it never pollutes stdout.
+
 ### Command reference
 
 | Command | What it does |
@@ -630,6 +640,7 @@ aidevops status                      # backend / account / project in effect
 | `providers` · `provider-add` · `provider-verify` · `provider-remove` | model credentials (org-level, admin only); `provider-verify` checks the key before an analysis discovers it is dead |
 | `requirements` · `test-cases` · `test-runs` · `bugs` · `releases` | read-only trackers |
 | `audit` | the audit trail (org-level, admin only) |
+| `upgrade` | install the newest release from PyPI (a development checkout is refused; use `git pull`) |
 | `tui` | full-screen interactive dashboard (Proposals / Findings / Commits) |
 
 ### Conventions
